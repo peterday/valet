@@ -1,0 +1,28 @@
+# Binary
+/valet
+/bin/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Go
+vendor/
+
+# Web build output (embedded at build time)
+web/out/
+web/node_modules/
+web/.next/
+
+# Local testing artifacts
+/.valet/
+/.valet.toml
+/.valet.local.toml
+.env
+.env.local
+.env.secrets
+coverage.out

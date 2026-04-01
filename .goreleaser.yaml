@@ -1,0 +1,38 @@
+version: 2
+
+project_name: valet
+
+before:
+  hooks:
+    - go mod tidy
+    - cd web && npm ci && npm run build
+
+builds:
+  - id: valet
+    main: ./cmd/valet
+    binary: valet
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "valet_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: superset-studio
+    name: valet
