@@ -41,7 +41,7 @@ var statusCmd = &cobra.Command{
 
 		if len(vc.Requires) == 0 {
 			fmt.Println("\nNo requirements declared in .valet.toml")
-			fmt.Println("Add requirements with: valet require OPENAI_API_KEY --provider openai")
+			fmt.Println("Add requirements with: valet secret require OPENAI_API_KEY --provider openai")
 			return nil
 		}
 
