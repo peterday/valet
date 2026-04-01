@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -73,41 +72,81 @@ func initHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 		return initOptionsHandler(cwd)
 	}
 
-	// Run init with the chosen mode.
-	valetPath, err := os.Executable()
+	// Run init in-process (no subprocess — avoids macOS codesign issues).
+	id, err := identity.LoadOrInit()
 	if err != nil {
-		valetPath = "valet"
+		return errResult("identity init failed: %v", err)
 	}
 
-	var args []string
+	var initMsg string
+
 	switch mode {
 	case "embedded":
-		args = []string{"init"}
+		storeRoot := filepath.Join(cwd, ".valet")
+		if _, err := os.Stat(filepath.Join(storeRoot, "store.json")); err == nil {
+			return errResult("valet already initialized in this directory")
+		}
+		s, err := store.Create(storeRoot, "default", domain.StoreTypeEmbedded, id)
+		if err != nil {
+			return errResult("creating store: %v", err)
+		}
+		s.AddUser("me", "", id.PublicKey)
+		s.CreateProject("default")
+		s.CreateEnvironment("default", "dev")
+		s.CreateScope("default", "dev/default")
+
+		vc := &domain.ValetConfig{Store: ".", Project: "default", DefaultEnv: "dev"}
+		tomlPath := filepath.Join(cwd, ".valet.toml")
+		if err := config.WriteValetToml(tomlPath, vc); err != nil {
+			return errResult("writing .valet.toml: %v", err)
+		}
+		initMsg = "Initialized embedded store in .valet/"
+
 	case "personal":
 		if storeName == "" {
 			return errResult("'store' is required for personal mode (e.g. my-keys)")
 		}
-		args = []string{"init", "--local", storeName}
+		if _, err := store.FindStoreByName(storeName, id); err != nil {
+			return errResult("personal store %q not found — create it with: valet store create %s", storeName, storeName)
+		}
+		vc := &domain.ValetConfig{Store: storeName, Project: "default", DefaultEnv: "dev"}
+		tomlPath := filepath.Join(cwd, ".valet.toml")
+		if err := config.WriteValetToml(tomlPath, vc); err != nil {
+			return errResult("writing .valet.toml: %v", err)
+		}
+		lc := &domain.LocalConfig{Stores: []domain.StoreLink{{Name: storeName}}}
+		if err := config.WriteLocalConfig(cwd, lc); err != nil {
+			return errResult("writing .valet.local.toml: %v", err)
+		}
+		initMsg = fmt.Sprintf("Linked personal store %q", storeName)
+
 	case "shared":
 		if storeName == "" {
 			return errResult("'store' is required for shared mode (e.g. github:acme/secrets)")
 		}
-		args = []string{"init", "--shared", storeName}
+		uri := store.ParseStoreURI(storeName)
+		link := domain.StoreLink{Name: uri.StoreName}
+		if uri.IsRemote {
+			link.URL = uri.Remote
+		}
+		vc := &domain.ValetConfig{
+			Store: storeName, Project: "default", DefaultEnv: "dev",
+			Stores: []domain.StoreLink{link},
+		}
+		tomlPath := filepath.Join(cwd, ".valet.toml")
+		if err := config.WriteValetToml(tomlPath, vc); err != nil {
+			return errResult("writing .valet.toml: %v", err)
+		}
+		initMsg = fmt.Sprintf("Linked shared store %q", storeName)
+
 	default:
 		return errResult("unknown mode %q — use 'embedded', 'personal', or 'shared'", mode)
-	}
-
-	cmd := exec.Command(valetPath, args...)
-	cmd.Dir = cwd
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return errResult("valet init failed: %s\n%s", err, string(output))
 	}
 
 	snippet := generateClaudeMDSnippet(cwd)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Valet initialized (%s mode).\n\n%s", mode, string(output))
+	fmt.Fprintf(&b, "%s\n", initMsg)
 	fmt.Fprintf(&b, "\n---\n\n")
 	fmt.Fprintf(&b, "Add this to the project's CLAUDE.md (create if it doesn't exist):\n\n")
 	fmt.Fprintf(&b, "```markdown\n%s```\n\n", snippet)
