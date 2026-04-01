@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -53,6 +54,15 @@ var userAddCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Added user %q\n", name)
+
+		// If the store has a GitHub remote and we know the user's GitHub handle,
+		// invite them as a collaborator so they can clone the repo.
+		if userGitHubFlag != "" && s.Meta.Remote != "" {
+			addGitHubCollaborator(s.Meta.Remote, userGitHubFlag)
+			fmt.Printf("\nTell %s to run:\n", name)
+			fmt.Printf("  valet join %s\n", remoteToShorthand(s.Meta.Remote))
+		}
+
 		return nil
 	},
 }
@@ -107,6 +117,46 @@ var userRemoveCmd = &cobra.Command{
 		fmt.Println("Note: user's access to existing scopes is not revoked. Run 'valet env revoke' to re-encrypt.")
 		return nil
 	},
+}
+
+// remoteToShorthand converts a git URL back to github: shorthand.
+func remoteToShorthand(remote string) string {
+	r := remote
+	r = strings.TrimPrefix(r, "git@github.com:")
+	r = strings.TrimPrefix(r, "https://github.com/")
+	r = strings.TrimSuffix(r, ".git")
+	if r != remote {
+		return "github:" + r
+	}
+	return remote
+}
+
+// addGitHubCollaborator invites a GitHub user as a collaborator on the store repo.
+// Best-effort — prints a hint if gh is not available or the invite fails.
+func addGitHubCollaborator(remote, githubUsername string) {
+	repo := remote
+	repo = strings.TrimPrefix(repo, "git@github.com:")
+	repo = strings.TrimPrefix(repo, "https://github.com/")
+	repo = strings.TrimSuffix(repo, ".git")
+
+	if repo == "" || !strings.Contains(repo, "/") {
+		return
+	}
+
+	if _, err := exec.LookPath("gh"); err != nil {
+		fmt.Printf("Tip: grant %s access to the repo:\n", githubUsername)
+		fmt.Printf("  gh api repos/%s/collaborators/%s -X PUT\n", repo, githubUsername)
+		return
+	}
+
+	cmd := exec.Command("gh", "api", fmt.Sprintf("repos/%s/collaborators/%s", repo, githubUsername), "-X", "PUT")
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Tip: grant %s access to the repo:\n", githubUsername)
+		fmt.Printf("  gh api repos/%s/collaborators/%s -X PUT\n", repo, githubUsername)
+		return
+	}
+
+	fmt.Printf("Invited %s as collaborator on %s\n", githubUsername, repo)
 }
 
 // fetchGitHubSSHKey fetches the first ed25519 or RSA SSH key for a GitHub user.
