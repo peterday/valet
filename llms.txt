@@ -71,6 +71,7 @@ Providers (OpenAI, Anthropic, Stripe, Supabase, Fly.io, Exa, ElevenLabs) are mat
 If Valet's MCP server is installed (`valet mcp install`), these tools are available:
 
 - `valet_init` — initialize valet in a project, returns CLAUDE.md snippet to write
+- `valet_scan` — scan for .env files, report key names (not values), match against providers and wallet
 - `valet_status` — project config, environments, secrets, requirements (the "tell me everything" tool)
 - `valet_wallet_search` — check if user already has a key in personal stores
 - `valet_link` — link a store to the project (all its keys become available, no secrets exposed)

@@ -764,6 +764,7 @@ This registers Valet as an MCP server. Start a new session to use it.
 | Tool | Purpose |
 |------|---------|
 | `valet_init` | Initialize Valet in a project, returns CLAUDE.md snippet |
+| `valet_scan` | Scan for .env files, match keys against providers and wallet |
 | `valet_status` | Project config, environments, secrets, requirements |
 | `valet_wallet_search` | Check if user already has a key in their personal stores |
 | `valet_link` | Link a store to the project — all its keys become available |
@@ -774,12 +775,20 @@ This registers Valet as an MCP server. Start a new session to use it.
 
 ### Typical AI workflow
 
-1. **Init** — `valet_init` → sets up encrypted store, returns CLAUDE.md snippet to write
+**New project:**
+1. **Init** — `valet_init` → sets up encrypted store, returns CLAUDE.md snippet
 2. **Discover** — `valet_provider_search` query="payments" → finds Stripe, PayPal, etc.
 3. **Require** — `valet_require` provider="stripe" → declares all Stripe env vars
-4. **Find** — `valet_wallet_search` key="STRIPE_SECRET_KEY" → checks if user already has it
-5. **Connect** — if found, ask user: link or copy? Then `valet_link` or `valet_copy`
-6. **Setup** — if not found, ask user to type `! valet setup` → interactive (stays in conversation)
+4. **Find** — `valet_wallet_search` → checks if user already has the keys
+5. **Connect** — `valet_link` or `valet_copy` based on user choice
+6. **Setup** — if not found, ask user to type `! valet setup`
+
+**Existing project with .env files:**
+1. **Init** — `valet_init` → sets up encrypted store
+2. **Scan** — `valet_scan` → finds .env files, matches keys against providers and wallet
+3. **Connect** — link wallet for keys already there, `! valet import .env` for the rest
+4. **Require** — `valet_require` for each key to declare requirements
+5. **Cleanup** — user deletes .env files (secrets are now encrypted in .valet/)
 
 ### Design principles
 

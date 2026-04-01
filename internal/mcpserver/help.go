@@ -246,6 +246,7 @@ const helpAI = `AI tool integration:
 
 MCP tools:
   valet_init               — initialize valet, generate CLAUDE.md snippet
+  valet_scan               — scan for .env files, match keys against providers/wallet
   valet_status             — project config, environments, secrets, requirements
   valet_wallet_search      — check if user already has a key
   valet_link               — link a store (all its keys become available)
@@ -254,7 +255,13 @@ MCP tools:
   valet_provider_search    — discover providers by name, category, or use case
   valet_help               — full CLI reference
 
-Workflow for AI tools:
+Workflow for existing projects with .env files:
+  1. valet_init to set up the project + write CLAUDE.md
+  2. valet_scan to detect .env files and match keys against wallet/providers
+  3. Link wallet for keys already there, ! valet import .env for the rest
+  4. valet_require for each key to declare requirements
+
+Workflow for new projects:
   1. valet_init to set up the project + write CLAUDE.md
   2. valet_provider_search to discover what keys are needed
   3. valet_require --provider <name> to declare all env vars

@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,7 @@ func Serve(version string) error {
 	)
 
 	s.AddTool(initTool, initHandler)
+	s.AddTool(scanTool, scanHandler)
 	s.AddTool(statusTool, statusHandler)
 	s.AddTool(walletSearchTool, walletSearchHandler)
 	s.AddTool(linkTool, linkHandler)
@@ -85,9 +87,9 @@ func initHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 	fmt.Fprintf(&b, "```markdown\n%s```\n\n", snippet)
 	fmt.Fprintf(&b, "Next steps:\n")
 	fmt.Fprintf(&b, "1. Write the CLAUDE.md snippet above to the project\n")
-	fmt.Fprintf(&b, "2. Use valet_provider_search to discover what API keys the project needs\n")
-	fmt.Fprintf(&b, "3. Use valet_require to declare each dependency\n")
-	fmt.Fprintf(&b, "4. Use valet_wallet_search to check if the user already has the keys\n")
+	fmt.Fprintf(&b, "2. Call valet_scan to detect existing .env files and match against wallet/providers\n")
+	fmt.Fprintf(&b, "3. Based on scan results, link wallet and/or import .env\n")
+	fmt.Fprintf(&b, "4. Call valet_require for each key to declare requirements\n")
 	fmt.Fprintf(&b, "5. For missing keys, ask the user to type: ! valet setup")
 
 	return mcp.NewToolResultText(b.String()), nil
@@ -154,6 +156,156 @@ func detectRunCommand(dir string) string {
 		return "cargo run"
 	}
 	return "<command>"
+}
+
+// --- valet_scan: scan project for existing secrets ---
+
+var scanTool = mcp.NewTool("valet_scan",
+	mcp.WithDescription(`Scan the project for existing .env files and report what secrets are defined. Call this right after valet_init to understand what the project already has.
+
+Returns:
+- Which .env files exist and what key names they contain (NEVER values)
+- Which keys match known providers (OpenAI, Stripe, etc.)
+- Which keys already exist in the user's personal wallet
+
+Based on the results, present the user with options:
+- Link their wallet for keys they already have (valet_link)
+- Import .env into the project store (ask user to type: ! valet import .env)
+- Declare requirements for all keys (valet_require)`),
+)
+
+func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errResult("cannot get working directory: %v", err)
+	}
+
+	// Find .env files.
+	envFiles := []string{
+		".env", ".env.local", ".env.development", ".env.staging",
+		".env.production", ".env.test", ".env.dev", ".env.prod",
+	}
+
+	type envFileInfo struct {
+		Name string
+		Keys []string
+	}
+	var found []envFileInfo
+	allKeys := make(map[string]string) // key → which file it came from
+
+	for _, name := range envFiles {
+		path := filepath.Join(cwd, name)
+		keys, err := scanEnvFileKeys(path)
+		if err != nil || len(keys) == 0 {
+			continue
+		}
+		found = append(found, envFileInfo{Name: name, Keys: keys})
+		for _, k := range keys {
+			if _, exists := allKeys[k]; !exists {
+				allKeys[k] = name
+			}
+		}
+	}
+
+	if len(found) == 0 {
+		return mcp.NewToolResultText("No .env files found in the project directory.\n\nUse valet_provider_search to discover what API keys the project needs, then valet_require to declare them."), nil
+	}
+
+	var b strings.Builder
+
+	// List files and keys.
+	fmt.Fprintf(&b, "Found %d .env file(s) with %d unique key(s):\n\n", len(found), len(allKeys))
+	for _, f := range found {
+		fmt.Fprintf(&b, "  %s (%d keys): %s\n", f.Name, len(f.Keys), strings.Join(f.Keys, ", "))
+	}
+
+	// Match against providers.
+	fmt.Fprintf(&b, "\nProvider matches:\n")
+	providerMatches := 0
+	for key := range allKeys {
+		p := provider.FindByEnvVar(key)
+		if p != nil {
+			fmt.Fprintf(&b, "  %-28s → %s\n", key, p.DisplayName)
+			providerMatches++
+		}
+	}
+	if providerMatches == 0 {
+		fmt.Fprintf(&b, "  (none matched known providers)\n")
+	}
+
+	// Search wallet for each key.
+	id, err := identity.Load()
+	walletMatches := make(map[string][]string) // key → store names
+	if err == nil {
+		for key := range allKeys {
+			matches, err := store.SearchStoresForSecret(key, "dev", id)
+			if err != nil || len(matches) == 0 {
+				continue
+			}
+			for _, m := range matches {
+				walletMatches[key] = append(walletMatches[key], m.StoreName)
+			}
+		}
+	}
+
+	if len(walletMatches) > 0 {
+		fmt.Fprintf(&b, "\nAlready in your wallet:\n")
+		storesUsed := make(map[string]bool)
+		for key, stores := range walletMatches {
+			fmt.Fprintf(&b, "  %-28s in %s\n", key, strings.Join(stores, ", "))
+			for _, s := range stores {
+				storesUsed[s] = true
+			}
+		}
+
+		// Recommend linking.
+		var storeNames []string
+		for s := range storesUsed {
+			storeNames = append(storeNames, s)
+		}
+		fmt.Fprintf(&b, "\nRecommendation:\n")
+		fmt.Fprintf(&b, "1. Ask the user: should I link your wallet (%s) or import everything from .env?\n", strings.Join(storeNames, ", "))
+		fmt.Fprintf(&b, "   - Link: call valet_link for each store — keys auto-update on rotation\n")
+		fmt.Fprintf(&b, "   - Import: ask user to type ! valet import .env — project owns copies\n")
+		fmt.Fprintf(&b, "   - Both: link wallet for keys already there, import .env for the rest\n")
+	} else {
+		fmt.Fprintf(&b, "\nNo matching keys found in wallet.\n\n")
+		fmt.Fprintf(&b, "Recommendation:\n")
+		fmt.Fprintf(&b, "1. Ask user to type: ! valet import .env\n")
+	}
+
+	fmt.Fprintf(&b, "2. Call valet_require for each key to declare requirements\n")
+	fmt.Fprintf(&b, "3. After import, the .env file can be deleted (secrets are now encrypted in .valet/)")
+
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+// scanEnvFileKeys reads a .env file and returns just the key names (never values).
+func scanEnvFileKeys(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var keys []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		key = strings.TrimPrefix(key, "export ")
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys, scanner.Err()
 }
 
 // --- valet_status: the "tell me everything" tool ---
