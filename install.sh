@@ -79,6 +79,11 @@ tar -xzf "${TMPDIR}/${FILENAME}" -C "$TMPDIR"
 mv "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 chmod +x "${INSTALL_DIR}/${BINARY}"
 
+# On macOS, ad-hoc sign the binary to prevent Gatekeeper from killing it.
+if [ "$OS" = "darwin" ] && command -v codesign >/dev/null 2>&1; then
+  codesign -s - -f "${INSTALL_DIR}/${BINARY}" 2>/dev/null || true
+fi
+
 echo ""
 echo "valet v${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
 
