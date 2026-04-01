@@ -66,21 +66,23 @@ var updateCmd = &cobra.Command{
 		}
 		defer os.Remove(newBinary)
 
-		// Check if we can write to the binary location.
-		if err := checkWritable(binaryPath); err != nil {
-			// Need sudo.
+		// Try direct rename first, fall back to sudo mv.
+		installed := false
+		if checkWritable(binaryPath) == nil {
+			if err := os.Rename(newBinary, binaryPath); err == nil {
+				installed = true
+			}
+		}
+		if !installed {
 			fmt.Printf("Installing to %s (requires sudo)...\n", binaryPath)
 			if err := sudoMove(newBinary, binaryPath); err != nil {
 				return fmt.Errorf("install failed: %w", err)
 			}
-		} else {
-			if err := os.Rename(newBinary, binaryPath); err != nil {
-				return fmt.Errorf("install failed: %w", err)
-			}
 		}
 
+		// chmod may also need sudo.
 		if err := os.Chmod(binaryPath, 0755); err != nil {
-			return fmt.Errorf("chmod: %w", err)
+			exec.Command("sudo", "chmod", "755", binaryPath).Run()
 		}
 
 		fmt.Printf("Updated to v%s\n", latest)
