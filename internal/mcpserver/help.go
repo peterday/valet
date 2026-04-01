@@ -242,17 +242,24 @@ const helpAI = `AI tool integration:
 
   valet mcp install                                    # register with Claude Code, Cursor, etc.
   valet mcp install --claude-code                      # Claude Code only
-
-MCP tools: valet_status, valet_wallet_search, valet_require,
-valet_provider_search, valet_help.
-
-Use valet_provider_search to discover providers by use case, category,
-or keyword — then valet_require --provider <name> to declare all their
-env vars at once.
   valet mcp install --cursor                           # Cursor only
 
-Once installed, AI tools get structured access to Valet via MCP tools
-(valet_status, valet_wallet_search, valet_require, valet_help).
-All other commands can be run via the terminal.`
+MCP tools:
+  valet_init               — initialize valet, generate CLAUDE.md snippet
+  valet_status             — project config, environments, secrets, requirements
+  valet_wallet_search      — check if user already has a key
+  valet_require            — declare secret dependencies (single key or entire provider)
+  valet_provider_search    — discover providers by name, category, or use case
+  valet_help               — full CLI reference
+
+Workflow for AI tools:
+  1. valet_init to set up the project + write CLAUDE.md
+  2. valet_provider_search to discover what keys are needed
+  3. valet_require --provider <name> to declare all env vars
+  4. valet_wallet_search to check if user has them
+  5. For missing keys, ask user to type: ! valet setup
+
+Important: never use --value flag or valet secret get — keep secrets out of AI context.
+Run commands with: valet run -- <command>`
 
 const helpFull = helpSetup + "\n\n" + helpSecrets + "\n\n" + helpRunning + "\n\n" + helpEnvironments + "\n\n" + helpUsers + "\n\n" + helpBots + "\n\n" + helpStores + "\n\n" + helpProviders + "\n\n" + helpAI + "\n\n" + helpSecurity

@@ -763,24 +763,27 @@ This registers Valet as an MCP server. Start a new session to use it.
 
 | Tool | Purpose |
 |------|---------|
-| `valet_status` | Project config, environments, secrets, requirements — the "tell me everything" tool |
+| `valet_init` | Initialize Valet in a project, returns CLAUDE.md snippet |
+| `valet_status` | Project config, environments, secrets, requirements |
 | `valet_wallet_search` | Check if user already has a key in their personal stores |
-| `valet_require` | Declare secret dependencies. Supports `--provider` for batch declaration |
-| `valet_provider_search` | Discover providers by name, category, or use case |
+| `valet_require` | Declare secret dependencies — single key or entire provider |
+| `valet_provider_search` | Discover 70+ providers by name, category, or use case |
 | `valet_help` | Full CLI reference (9 topics) |
 
 ### Typical AI workflow
 
-1. **Discover** — `valet_provider_search` query="payments" → finds Stripe, PayPal, etc.
-2. **Require** — `valet_require` provider="stripe" → declares `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`
-3. **Find** — `valet_wallet_search` key="STRIPE_SECRET_KEY" → checks if user already has it
-4. **Setup** — suggest `valet setup` in terminal → interactive configuration
+1. **Init** — `valet_init` → sets up encrypted store, returns CLAUDE.md snippet to write
+2. **Discover** — `valet_provider_search` query="payments" → finds Stripe, PayPal, etc.
+3. **Require** — `valet_require` provider="stripe" → declares all Stripe env vars
+4. **Find** — `valet_wallet_search` key="STRIPE_SECRET_KEY" → checks if user already has it
+5. **Setup** — ask user to type `! valet setup` → interactive configuration (stays in conversation)
 
 ### Design principles
 
 - **Never returns secret values** — tools return names, sources, and metadata only
-- **Read-only discovery** — status, search, and help tools are safe to call freely
-- **Action through terminal** — for operations that modify secrets, the AI suggests CLI commands for the user to run
+- **Secrets stay out of AI context** — users enter values via `! valet secret set KEY` (interactive)
+- **Provider-first** — search 70+ providers, then batch-declare all their env vars
+- **CLAUDE.md as memory** — `valet_init` generates a snippet so future sessions know to use Valet
 
 ## Development
 
