@@ -122,8 +122,12 @@ Combine modes to layer stores:
 				return err
 			}
 
-			// Store the full ref (with project if specified) in .valet.toml.
-			vc.Stores = append(vc.Stores, initSharedFlag)
+			// Store the link in .valet.toml.
+			sharedLink := domain.StoreLink{Name: uri.StoreName}
+			if uri.IsRemote {
+				sharedLink.URL = uri.Remote
+			}
+			vc.Stores = append(vc.Stores, sharedLink)
 
 			// If no embedded store, use the shared store as primary.
 			if !hasEmbedded {
@@ -163,16 +167,13 @@ Combine modes to layer stores:
 				return fmt.Errorf("personal store %q not found — create it with: valet store create %s", uri.StoreName, uri.StoreName)
 			}
 
-			// Store the full ref (with project if specified).
-			alreadyLinked := false
-			for _, s := range lc.Stores {
-				if s == initLocalFlag {
-					alreadyLinked = true
-					break
-				}
+			// Store the link.
+			localLink := domain.StoreLink{Name: uri.StoreName}
+			if uri.IsRemote {
+				localLink.URL = uri.Remote
 			}
-			if !alreadyLinked {
-				lc.Stores = append(lc.Stores, initLocalFlag)
+			if !store.HasStoreLink(lc.Stores, localLink.Name) {
+				lc.Stores = append(lc.Stores, localLink)
 				if err := config.WriteLocalConfig(tomlDir, lc); err != nil {
 					return err
 				}
@@ -190,6 +191,10 @@ Combine modes to layer stores:
 		if hasLocal {
 			fmt.Printf("Linked personal store: %s\n", initLocalFlag)
 		}
+
+		// If the project uses AI tools, suggest adding valet context.
+		hint := detectProject(cwd)
+		maybePrintAITip(cwd, hint)
 
 		fmt.Println("\nReady to go:")
 		fmt.Println("  valet secret set MY_KEY --value secret123")

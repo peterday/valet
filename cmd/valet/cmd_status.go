@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"strings"
+
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/config"
 	"github.com/peterday/valet/internal/store"
@@ -31,7 +33,7 @@ var statusCmd = &cobra.Command{
 		fmt.Printf("Project: %s\n", vc.Project)
 		fmt.Printf("Store:   %s\n", vc.Store)
 		if len(vc.Stores) > 0 {
-			fmt.Printf("Linked:  %v\n", vc.Stores)
+			fmt.Printf("Linked:  %s\n", strings.Join(store.StoreLinkNames(vc.Stores), ", "))
 		}
 
 		env := "dev"

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/config"
+	"github.com/peterday/valet/internal/domain"
 	"github.com/peterday/valet/internal/store"
 )
 
@@ -65,6 +66,11 @@ var linkCmd = &cobra.Command{
 			}
 		}
 
+		link := domain.StoreLink{Name: uri.StoreName}
+		if uri.IsRemote {
+			link.URL = uri.Remote
+		}
+
 		if linkSharedFlag {
 			// Write to .valet.toml (committed).
 			vc, err := config.LoadValetToml(tomlPath)
@@ -72,29 +78,24 @@ var linkCmd = &cobra.Command{
 				return err
 			}
 
-			// Use the ref as-is (name or remote URL) so teammates can resolve it.
-			for _, existing := range vc.Stores {
-				if existing == ref {
-					fmt.Printf("Store %q already linked (shared)\n", ref)
-					return nil
-				}
+			if store.HasStoreLink(vc.Stores, link.Name) {
+				fmt.Printf("Store %q already linked (shared)\n", link.Name)
+				return nil
 			}
-			vc.Stores = append(vc.Stores, ref)
+			vc.Stores = append(vc.Stores, link)
 			if err := config.WriteValetToml(tomlPath, vc); err != nil {
 				return err
 			}
-			fmt.Printf("Linked %q (shared, in .valet.toml)\n", ref)
+			fmt.Printf("Linked %q (shared, in .valet.toml)\n", link.Name)
 		} else {
 			// Write to .valet.local.toml (gitignored).
 			lc, _ := config.LoadLocalConfig(tomlDir)
 
-			for _, existing := range lc.Stores {
-				if existing == ref {
-					fmt.Printf("Store %q already linked (local)\n", ref)
-					return nil
-				}
+			if store.HasStoreLink(lc.Stores, link.Name) {
+				fmt.Printf("Store %q already linked (local)\n", link.Name)
+				return nil
 			}
-			lc.Stores = append(lc.Stores, ref)
+			lc.Stores = append(lc.Stores, link)
 			if err := config.WriteLocalConfig(tomlDir, lc); err != nil {
 				return err
 			}
@@ -102,7 +103,7 @@ var linkCmd = &cobra.Command{
 			// Ensure .valet.local.toml is in .gitignore.
 			ensureInGitignore(tomlDir, config.ValetLocalToml)
 
-			fmt.Printf("Linked %q (local, in .valet.local.toml)\n", ref)
+			fmt.Printf("Linked %q (local, in .valet.local.toml)\n", link.Name)
 		}
 
 		return nil
@@ -131,7 +132,7 @@ var unlinkCmd = &cobra.Command{
 
 		// Try removing from .valet.local.toml.
 		lc, _ := config.LoadLocalConfig(tomlDir)
-		if newStores, ok := removeFromSlice(lc.Stores, ref); ok {
+		if newStores, ok := removeStoreLink(lc.Stores, ref); ok {
 			lc.Stores = newStores
 			if err := config.WriteLocalConfig(tomlDir, lc); err != nil {
 				return err
@@ -148,7 +149,7 @@ var unlinkCmd = &cobra.Command{
 			}
 			return nil
 		}
-		if newStores, ok := removeFromSlice(vc.Stores, ref); ok {
+		if newStores, ok := removeStoreLink(vc.Stores, ref); ok {
 			vc.Stores = newStores
 			if err := config.WriteValetToml(tomlPath, vc); err != nil {
 				return err
@@ -165,13 +166,13 @@ var unlinkCmd = &cobra.Command{
 	},
 }
 
-func removeFromSlice(slice []string, item string) ([]string, bool) {
-	for i, s := range slice {
-		if s == item {
-			return append(slice[:i], slice[i+1:]...), true
+func removeStoreLink(links []domain.StoreLink, name string) ([]domain.StoreLink, bool) {
+	for i, l := range links {
+		if l.Name == name {
+			return append(links[:i], links[i+1:]...), true
 		}
 	}
-	return slice, false
+	return links, false
 }
 
 func ensureInGitignore(dir, filename string) {

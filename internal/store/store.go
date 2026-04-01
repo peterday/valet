@@ -153,6 +153,11 @@ func (s *Store) resolveProject(slug string) (string, error) {
 	return "", fmt.Errorf("no project specified and no default project set")
 }
 
+// ResolveDefaultProject returns the default project slug.
+func (s *Store) ResolveDefaultProject() (string, error) {
+	return s.resolveProject("")
+}
+
 // ageIdentity returns the age.Identity for decryption.
 func (s *Store) ageIdentity() age.Identity {
 	return s.Identity.AgeIdentity()

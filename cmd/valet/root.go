@@ -63,8 +63,8 @@ func openStore() (*store.Store, error) {
 }
 
 // openAllStores returns all linked stores in resolution order
-// (local/personal → shared/team → embedded). Used by drive/sync/status.
-func openAllStores() ([]*store.Store, error) {
+// (local/personal → shared/team → embedded → local overrides). Used by drive/sync/status.
+func openAllStores() ([]store.LinkedStore, error) {
 	id, err := loadIdentity()
 	if err != nil {
 		return nil, err
@@ -79,23 +79,24 @@ func openAllStores() ([]*store.Store, error) {
 	// Load .valet.toml and .valet.local.toml.
 	cwd, err := os.Getwd()
 	if err != nil {
-		return []*store.Store{primary}, nil
+		return []store.LinkedStore{{Store: primary}}, nil
 	}
 
 	tomlPath, err := config.FindValetToml(cwd)
 	if err != nil {
-		return []*store.Store{primary}, nil
+		return []store.LinkedStore{{Store: primary}}, nil
 	}
 
 	vc, err := config.LoadValetToml(tomlPath)
 	if err != nil {
-		return []*store.Store{primary}, nil
+		return []store.LinkedStore{{Store: primary}}, nil
 	}
 
 	tomlDir := filepath.Dir(tomlPath)
 	lc, _ := config.LoadLocalConfig(tomlDir)
+	localStore := store.OpenLocalStore(tomlDir, id)
 
-	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, id), nil
+	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, localStore, id), nil
 }
 
 // resolveEnv returns the environment to use (flag override or default).

@@ -14,7 +14,7 @@ cd ~/code/my-api
 valet init                                             # creates encrypted store
 valet secret set OPENAI_API_KEY --value sk-abc123
 valet secret set DATABASE_URL --value postgres://localhost/mydb
-valet drive -- uvicorn main:app --reload               # run with secrets injected
+valet drive -- uvicorn main:app --reload                # run with secrets injected
 ```
 
 Secrets are encrypted in `.valet/`, injected at runtime by `valet drive`, and `.valet.toml` is safe to commit. Need a `.env` file? `valet sync .env`.
@@ -110,6 +110,58 @@ valet sync .env -e prod
 
 Secrets are isolated per environment. Grant a teammate `dev` without exposing `prod`.
 
+## Local Overrides
+
+Like `.env.local` in Next.js — local developer overrides that are never committed.
+
+```bash
+valet secret set CACHE_URL --local                     # set for dev (default)
+valet secret set DATABASE_URL --local -e '*'           # set for all environments
+valet secret set API_KEY --local -e dev,staging         # set for specific envs
+```
+
+Local overrides live in `.valet.local/` (gitignored). They take highest priority in resolution — above the embedded store, above linked stores.
+
+```bash
+valet resolve
+  DATABASE_URL        postg...b/dev     .valet.local/*         ← local wildcard
+  OPENAI_API_KEY      sk-pr...xyz       .valet.local/dev       ← local override
+  CACHE_URL           redis...379       team-backend/dev       ← from team store
+  DATADOG_API_KEY     dd-ab...123       .valet/dev             ← from project
+```
+
+### Resolution order
+
+For a given key + environment (highest priority first):
+
+```
+1. --set overrides          (command line, ephemeral)
+2. .valet.local/{env}       (local developer overrides)
+3. .valet.local/*           (local wildcard)
+4. .valet/{env}             (shared project values)
+5. .valet/*                 (shared project wildcard)
+6. linked stores/{env}      (team/personal)
+7. linked stores/*          (team/personal wildcard)
+```
+
+### Wildcard environment
+
+Set a value once, applies to all environments:
+
+```bash
+valet secret set DATADOG_API_KEY -e '*'                # same key everywhere
+valet secret set DATABASE_URL -e dev                   # except dev uses this
+```
+
+### Inspecting resolution
+
+```bash
+valet resolve                                          # all secrets, masked
+valet resolve --show                                   # all secrets, values shown
+valet resolve DATABASE_URL --show                      # single key (pipeable)
+valet resolve DATABASE_URL --verbose                   # full provenance chain
+```
+
 ## Using Personal Keys in a Project
 
 You have API keys in a personal store. Your project needs them. Two ways to connect them:
@@ -123,13 +175,27 @@ valet init --local my-keys
 
 Now `valet drive` and `valet sync` pull from both your personal store and the project's embedded store. Nothing is copied — your keys stay in `my-keys`, and the link is in `.valet.local.toml` (gitignored, so teammates don't see it).
 
-### Copy keys into the project store (self-contained)
+### Copy a single key into the project store
+
+```bash
+valet secret copy STRIPE_KEY --from my-keys
+```
+
+Copies one secret into the embedded store. The project owns its own copy — self-contained, shareable with the team via git. Use this for project-specific keys.
+
+### Copy all keys into the project store (self-contained)
 
 ```bash
 valet secret sync --to .
 ```
 
-This copies all resolved secrets into the embedded store. The project becomes self-contained — no personal store link needed. Good for when the project should have its own copy of the keys.
+Copies all resolved secrets into the embedded store. The project becomes self-contained — no personal store link needed.
+
+### When to link vs copy
+
+**Link** — key stays in the source store, resolves at runtime. If you rotate the key in your personal store, every linked project gets the update. Best for personal dev keys you reuse everywhere (OpenAI, Anthropic, etc.).
+
+**Copy** — value is re-encrypted into the project's store. Self-contained, shareable with teammates via git. If the source key rotates, you must re-copy. Best for project-specific keys (this app's Stripe account, database URLs).
 
 ### Copy keys into a team store (share with team)
 
@@ -399,6 +465,90 @@ optional = true
 
 `valet status` shows what's resolved. `valet setup` fills in the gaps interactively.
 
+## Store Linking
+
+Linked stores make their secrets available to a project. The simplest link is just a name — all keys, environments matched by name:
+
+```toml
+[[stores]]
+name = "team-backend"
+url = "git@github.com:acme/secrets-backend.git"
+```
+
+### Key filtering and name mapping
+
+Filter to specific keys, or remap names when the source store uses different conventions:
+
+```toml
+[[stores]]
+name = "team-infra"
+url = "git@github.com:acme/secrets-infra.git"
+keys = [
+  "CACHE_URL",
+  { local = "DATABASE_URL", remote = "POSTGRES_PRIMARY_URL" },
+  { local = "DATABASE_URL_RO", remote = "POSTGRES_REPLICA_URL" },
+]
+```
+
+Without `keys`, all secrets from the linked store are available.
+
+### Environment mapping
+
+When local and remote environment names differ:
+
+```toml
+[[stores]]
+name = "team-backend"
+url = "git@github.com:acme/secrets-backend.git"
+environments = [
+  { local = "dev", remote = "staging" },
+]
+```
+
+Unmapped environments match by name — `production` → `production` is implicit.
+
+### Resolution order
+
+For a given key + environment:
+
+1. **Embedded store** (`.valet/`) — local overrides always win
+2. **Linked stores** — in declaration order (shared, then personal)
+3. **Conflict** — if multiple linked stores provide the same key, `valet status` shows an error
+
+### Link types
+
+When `valet setup` finds a missing secret in another store, you choose how to connect it:
+
+| Choice | What happens | Stored in | Who benefits |
+|---|---|---|---|
+| **Copy** | Value copied into embedded store | `.valet/secrets` (committed) | Everyone with project access |
+| **Link (just me)** | Personal link to source store | `.valet.local.toml` (gitignored) | Only this developer |
+| **Link (project)** | Project declares store dependency | `.valet.toml` (committed) | All contributors |
+
+"Link (project)" only appears for git-backed stores — you can't ask teammates to use a store that only exists on your laptop.
+
+## Provider Registry
+
+Valet has a built-in registry of common API providers. When a required secret matches a known provider, `valet setup` opens the right browser page, validates the key format, and confirms it works.
+
+Supported providers: **OpenAI**, **Anthropic**, **Stripe**, **Supabase**, **Fly.io**, **Exa**, **ElevenLabs**.
+
+Providers are matched by env var name (not pattern inference):
+
+```
+OPENAI_API_KEY      → openai
+STRIPE_SECRET_KEY   → stripe
+SUPABASE_URL        → supabase
+```
+
+For non-standard names, set the provider explicitly:
+
+```bash
+valet require MY_AI_KEY --provider openai
+```
+
+Key rotation varies by provider — `valet rotate` guides you through the right process for each.
+
 ## CLI Reference
 
 ### Setup
@@ -426,13 +576,14 @@ valet secret get KEY                                   # get value
 valet secret list                                      # list in current env
 valet secret history KEY                               # version history
 valet secret remove KEY --scope path                   # remove
-valet secret sync --to <store>                         # promote secrets between stores
+valet secret copy KEY --from <store>                   # copy one secret into this project
+valet secret sync --to <store>                         # copy all resolved secrets into a store
 ```
 
 ### Running & Exporting
 
 ```bash
-valet drive -- <command>                               # inject secrets and run
+valet drive -- <command>                               # inject secrets and run (alias: valet run)
 valet drive -e prod -- <command>                       # specific environment
 valet sync .env                                        # dotenv file
 valet sync --format json                               # JSON
@@ -543,12 +694,27 @@ valet link github:pday/my-keys                         # personal (gitignored)
 valet link github:acme/api-secrets/api --shared        # team (committed)
 ```
 
-Secrets merge — project-specific wins on conflict:
+Secrets merge — embedded store wins on conflict:
 
 ```
 personal (my-keys)      → OPENAI_API_KEY
 team (api-secrets)      → DATADOG_API_KEY
 embedded (.valet/)      → DATABASE_URL               ← wins on conflict
+```
+
+The resulting `.valet.toml`:
+
+```toml
+[[stores]]
+name = "api-secrets"
+url = "git@github.com:acme/api-secrets.git"
+```
+
+And `.valet.local.toml` (gitignored):
+
+```toml
+[[stores]]
+name = "my-keys"
 ```
 
 ## Security
@@ -575,7 +741,7 @@ make test        # all tests
 - [x] Embedded, personal, and team stores with layering
 - [x] Store URIs with project: `github:org/repo/project`
 - [x] Projects, environments, scopes, recipients
-- [x] `valet drive` — inject and run
+- [x] `valet run` / `valet drive` — inject and run
 - [x] `valet sync` — 8 export formats
 - [x] `valet bot` — bot identities with `VALET_KEY`
 - [x] `valet require` + `valet setup` — project onboarding
@@ -586,7 +752,9 @@ make test        # all tests
 - [x] `valet join` — auto-accept GitHub invites, show accessible secrets, `--as` alias
 - [x] `valet user add --github` — auto-invite as GitHub collaborator
 - [x] `valet store delete` — clean up local stores
-- [ ] Provider automation — create/rotate keys via provider APIs
+- [x] Provider registry — setup URLs, key validation, rotation guidance
+- [x] Store linking — key filtering, name mapping, environment mapping
+- [ ] Provider automation — create/rotate keys via provider APIs (OpenAI, Fly.io)
 - [ ] Cloud-backed stores with audit logs
 - [ ] Kubernetes operator
 

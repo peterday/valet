@@ -86,18 +86,81 @@ type Requirement struct {
 	Scope       string `toml:"scope,omitempty"` // default scope for this secret (e.g. "runtime", "db")
 }
 
+// KeyMapping maps a local key name to a remote key name in a linked store.
+// When unmarshalled from TOML, a plain string becomes Local=Remote=string.
+type KeyMapping struct {
+	Local  string `toml:"local"`
+	Remote string `toml:"remote"`
+}
+
+// EnvMapping maps a local environment name to a remote environment name.
+type EnvMapping struct {
+	Local  string `toml:"local"`
+	Remote string `toml:"remote"`
+}
+
+// StoreLink declares a linked store with optional key filtering, name mapping,
+// and environment mapping. The simplest form is just name + url; everything
+// else is additive complexity.
+type StoreLink struct {
+	Name         string       `toml:"name"`
+	URL          string       `toml:"url,omitempty"`          // git URL for git-backed stores
+	RawKeys      []any        `toml:"keys,omitempty"`         // raw TOML: strings or {local, remote} maps
+	Environments []EnvMapping `toml:"environments,omitempty"` // only needed when env names differ
+}
+
+// ParsedKeys returns the key mappings for this link. Plain strings become
+// identity mappings (local == remote). If no keys are specified, all keys
+// from the store are available.
+func (sl *StoreLink) ParsedKeys() []KeyMapping {
+	if len(sl.RawKeys) == 0 {
+		return nil // all keys
+	}
+	var result []KeyMapping
+	for _, raw := range sl.RawKeys {
+		switch v := raw.(type) {
+		case string:
+			result = append(result, KeyMapping{Local: v, Remote: v})
+		case map[string]any:
+			km := KeyMapping{}
+			if l, ok := v["local"].(string); ok {
+				km.Local = l
+			}
+			if r, ok := v["remote"].(string); ok {
+				km.Remote = r
+			}
+			if km.Local == "" || km.Remote == "" {
+				continue // skip malformed entries
+			}
+			result = append(result, km)
+		}
+	}
+	return result
+}
+
+// ResolveEnv maps a local environment name to the remote environment name
+// for this store link. Unmapped environments match by name.
+func (sl *StoreLink) ResolveEnv(localEnv string) string {
+	for _, em := range sl.Environments {
+		if em.Local == localEnv {
+			return em.Remote
+		}
+	}
+	return localEnv // default: same name
+}
+
 // ValetConfig is the project-level .valet.toml configuration (committed to git).
 type ValetConfig struct {
 	Store      string                 `toml:"store"`
 	Project    string                 `toml:"project"`
 	DefaultEnv string                 `toml:"default_env"`
-	Stores     []string               `toml:"stores,omitempty"` // shared store links (names or remote URLs)
+	Stores     []StoreLink            `toml:"stores,omitempty"`  // shared store links
 	Requires   map[string]Requirement `toml:"requires,omitempty"`
 }
 
 // LocalConfig is the per-developer .valet.local.toml (gitignored).
 type LocalConfig struct {
-	Stores []string `toml:"stores,omitempty"` // personal store links (names or remote URLs)
+	Stores []StoreLink `toml:"stores,omitempty"` // personal store links
 }
 
 // Invite is a pending invitation stored in .valet/invites/.

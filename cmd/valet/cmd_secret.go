@@ -4,13 +4,16 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/peterday/valet/internal/config"
 	"github.com/peterday/valet/internal/store"
 )
 
 var secretValueFlag string
+var secretLocalFlag bool
 
 var secretCmd = &cobra.Command{
 	Use:   "secret",
@@ -22,26 +25,17 @@ var secretProviderFlag string
 var secretSetCmd = &cobra.Command{
 	Use:   "set <KEY>",
 	Short: "Set a secret value in a scope",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		scope := scopeFlag
-		if scope == "" {
-			// Default to <env>/default scope.
-			env := envFlag
-			if env == "" {
-				env = "dev"
-			}
-			scope = env + "/default"
-		}
+	Long: `Set a secret value. Prompts for value if not provided via --value or stdin.
 
-		s, err := openStore()
-		if err != nil {
-			return err
-		}
-		project, err := resolveProject(s)
-		if err != nil {
-			return err
-		}
+  valet secret set API_KEY                             # prompts, sets in dev
+  valet secret set API_KEY -e prod --value sk-abc      # set in prod
+  valet secret set API_KEY --local                     # local override (gitignored)
+  valet secret set API_KEY -e '*'                      # wildcard, all envs
+  valet secret set API_KEY -e dev,staging              # set same value in multiple envs`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Parse environment(s) — supports single, comma-separated, or wildcard.
+		envs := parseEnvFlag()
 
 		value := secretValueFlag
 		if value == "" {
@@ -64,18 +58,100 @@ var secretSetCmd = &cobra.Command{
 			return fmt.Errorf("value is required")
 		}
 
-		if secretProviderFlag != "" {
-			if err := s.SetSecretWithProvider(project, scope, args[0], value, secretProviderFlag); err != nil {
+		var s *store.Store
+		var project string
+
+		if secretLocalFlag {
+			// Write to .valet.local/ store.
+			cwd, err := os.Getwd()
+			if err != nil {
 				return err
 			}
+			tomlPath, err := config.FindValetToml(cwd)
+			if err != nil {
+				return fmt.Errorf("no .valet.toml found — run 'valet init' first")
+			}
+			id, err := loadIdentityOrInit()
+			if err != nil {
+				return err
+			}
+			ls, err := store.CreateLocalStore(filepath.Dir(tomlPath), id)
+			if err != nil {
+				return fmt.Errorf("creating local store: %w", err)
+			}
+			s = ls
+			// Ensure local store has a project matching the embedded store.
+			primary, err := openStore()
+			if err != nil {
+				return err
+			}
+			p, err := resolveProject(primary)
+			if err != nil {
+				return err
+			}
+			project = p
+			// Create project in local store if needed.
+			s.CreateProject(project)
 		} else {
-			if err := s.SetSecret(project, scope, args[0], value); err != nil {
+			var err error
+			s, err = openStore()
+			if err != nil {
+				return err
+			}
+			project, err = resolveProject(s)
+			if err != nil {
 				return err
 			}
 		}
-		fmt.Printf("Set %s in %s\n", args[0], scope)
+
+		// Set in each environment.
+		for _, env := range envs {
+			scope := scopeFlag
+			if scope == "" {
+				scope = env + "/default"
+			}
+
+			// Ensure environment exists.
+			s.CreateEnvironment(project, env)
+
+			if secretProviderFlag != "" {
+				if err := s.SetSecretWithProvider(project, scope, args[0], value, secretProviderFlag); err != nil {
+					return err
+				}
+			} else {
+				if err := s.SetSecret(project, scope, args[0], value); err != nil {
+					return err
+				}
+			}
+			target := ""
+			if secretLocalFlag {
+				target = " (local)"
+			}
+			fmt.Printf("Set %s in %s%s\n", args[0], scope, target)
+		}
 		return nil
 	},
+}
+
+// parseEnvFlag parses the -e flag into a list of environments.
+// Supports: "dev", "dev,staging", "*"
+func parseEnvFlag() []string {
+	env := envFlag
+	if env == "" {
+		return []string{"dev"}
+	}
+	if strings.Contains(env, ",") {
+		parts := strings.Split(env, ",")
+		var result []string
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				result = append(result, p)
+			}
+		}
+		return result
+	}
+	return []string{env}
 }
 
 var secretGetCmd = &cobra.Command{
@@ -350,15 +426,87 @@ func resolveProjectForStore(s *store.Store) (string, error) {
 	return projects[0].Slug, nil
 }
 
+var secretCopyFromFlag string
+
+var secretCopyCmd = &cobra.Command{
+	Use:   "copy <KEY>",
+	Short: "Copy a single secret from another store into this project",
+	Long: `Copy a specific secret from a personal or team store into the current
+project's embedded store. The value is re-encrypted for the project's recipients.
+
+Use this when you want the project to own its own copy of the secret (self-contained).
+Use 'valet link' instead if you want the secret to stay in the source store and
+resolve at runtime (auto-updates when rotated, but requires the link).
+
+  valet secret copy STRIPE_KEY --from my-keys
+  valet secret copy DATABASE_URL --from acme-secrets -e prod`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		key := args[0]
+		if secretCopyFromFlag == "" {
+			return fmt.Errorf("--from is required (source store name)")
+		}
+
+		env := "dev"
+		if envFlag != "" {
+			env = envFlag
+		}
+
+		id, err := loadIdentity()
+		if err != nil {
+			return err
+		}
+
+		// Open source store and get the secret.
+		source, err := store.FindStoreByName(secretCopyFromFlag, id)
+		if err != nil {
+			return err
+		}
+		sourceProject, err := resolveProjectForStore(source)
+		if err != nil {
+			return fmt.Errorf("source store: %w", err)
+		}
+		secret, scopePath, err := source.GetSecretFromEnv(sourceProject, env, key)
+		if err != nil || secret == nil {
+			return fmt.Errorf("%s not found in %s (%s environment)", key, secretCopyFromFlag, env)
+		}
+
+		// Open target (embedded/primary) store and write.
+		target, err := openStore()
+		if err != nil {
+			return err
+		}
+		targetProject, err := resolveProject(target)
+		if err != nil {
+			return err
+		}
+
+		targetScope := env + "/default"
+		if scopeFlag != "" {
+			targetScope = scopeFlag
+		}
+
+		if err := target.SetSecret(targetProject, targetScope, key, secret.Value); err != nil {
+			return err
+		}
+
+		fmt.Printf("Copied %s from %s/%s into %s\n", key, secretCopyFromFlag, scopePath, targetScope)
+		return nil
+	},
+}
+
 func init() {
 	secretSetCmd.Flags().StringVar(&secretValueFlag, "value", "", "secret value (prompted if not provided)")
 	secretSetCmd.Flags().StringVar(&secretProviderFlag, "provider", "", "provider name (e.g. openai, stripe, aws)")
+	secretSetCmd.Flags().BoolVar(&secretLocalFlag, "local", false, "store in .valet.local/ (gitignored, local overrides)")
 	secretSyncCmd.Flags().StringVar(&secretSyncToFlag, "to", "", "target store name")
+	secretCopyCmd.Flags().StringVar(&secretCopyFromFlag, "from", "", "source store name")
 	secretCmd.AddCommand(secretSetCmd)
 	secretCmd.AddCommand(secretGetCmd)
 	secretCmd.AddCommand(secretListCmd)
 	secretCmd.AddCommand(secretRemoveCmd)
 	secretCmd.AddCommand(secretHistoryCmd)
 	secretCmd.AddCommand(secretSyncCmd)
+	secretCmd.AddCommand(secretCopyCmd)
 	rootCmd.AddCommand(secretCmd)
 }
