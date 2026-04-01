@@ -83,16 +83,18 @@ var updateCmd = &cobra.Command{
 		}
 		defer os.Remove(newBinary)
 
+		// On macOS, sign the binary BEFORE copying to the final path.
+		// Signing after copy is too late — macOS caches a kill decision
+		// the moment an unsigned binary appears at the target path.
+		if runtime.GOOS == "darwin" {
+			exec.Command("codesign", "-s", "-", "-f", newBinary).Run()
+		}
+
 		// Copy instead of rename to handle cross-filesystem.
 		if err := copyFile(newBinary, binaryPath); err != nil {
 			return fmt.Errorf("install failed: %w", err)
 		}
 		os.Chmod(binaryPath, 0755)
-
-		// On macOS, re-sign the binary to prevent Gatekeeper issues.
-		if runtime.GOOS == "darwin" {
-			exec.Command("codesign", "-s", "-", "-f", binaryPath).Run()
-		}
 
 		fmt.Printf("Updated to v%s (%s)\n", latest, binaryPath)
 

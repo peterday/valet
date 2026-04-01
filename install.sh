@@ -76,13 +76,14 @@ fi
 
 mkdir -p "$INSTALL_DIR"
 tar -xzf "${TMPDIR}/${FILENAME}" -C "$TMPDIR"
-mv "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
-chmod +x "${INSTALL_DIR}/${BINARY}"
+chmod +x "${TMPDIR}/${BINARY}"
 
-# On macOS, ad-hoc sign the binary to prevent Gatekeeper from killing it.
+# On macOS, sign the binary BEFORE moving to the final path.
 if [ "$OS" = "darwin" ] && command -v codesign >/dev/null 2>&1; then
-  codesign -s - -f "${INSTALL_DIR}/${BINARY}" 2>/dev/null || true
+  codesign -s - -f "${TMPDIR}/${BINARY}" 2>/dev/null || true
 fi
+
+mv "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
 
 echo ""
 echo "valet v${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
