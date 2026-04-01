@@ -191,6 +191,11 @@ Combine modes to layer stores:
 			fmt.Printf("Linked personal store: %s\n", initLocalFlag)
 		}
 
+		// Detect project type and write CLAUDE.md snippet.
+		hint := detectProject(cwd)
+		wrote, _ := writeClaudeMDSnippet(cwd, hint)
+		printClaudeMDHint(wrote, cwd)
+
 		fmt.Println("\nReady to go:")
 		fmt.Println("  valet secret set MY_KEY --value secret123")
 		fmt.Println("  valet drive -- your-command")
