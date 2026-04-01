@@ -94,7 +94,9 @@ func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	}
 
 	if missing > 0 {
-		fmt.Fprintf(&b, "\n%d required secret(s) missing. Use valet_secret_set to store them, or run 'valet setup' in the terminal for interactive setup.", missing)
+		fmt.Fprintf(&b, "\n%d required secret(s) missing.\n", missing)
+		fmt.Fprintf(&b, "Use valet_wallet_search to check if the user already has these keys.\n")
+		fmt.Fprintf(&b, "Then run 'valet setup' in the terminal — it searches the wallet, lets the user choose, and prompts for any remaining values.")
 	}
 
 	return mcp.NewToolResultText(b.String()), nil
@@ -161,7 +163,7 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	}
 
 	if len(matches) == 0 {
-		return mcp.NewToolResultText(fmt.Sprintf("%s not found in any personal store. The user will need to provide it via 'valet secret set %s'.", key, key)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("%s not found in any personal store.\n\nRun 'valet secret set %s' in the terminal to prompt the user for the value.", key, key)), nil
 	}
 
 	var b strings.Builder
@@ -169,7 +171,13 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	for _, m := range matches {
 		fmt.Fprintf(&b, "  • %s (scope: %s)\n", m.StoreName, m.ScopePath)
 	}
-	fmt.Fprintf(&b, "\nThe user can link this store to the project with 'valet link <store-name>' or run 'valet setup' to configure interactively.")
+	if len(matches) == 1 {
+		m := matches[0]
+		fmt.Fprintf(&b, "\nTo use this key, run 'valet setup' in the terminal — it will offer to link the store '%s'.\n", m.StoreName)
+		fmt.Fprintf(&b, "Alternatively, run 'valet link %s' to link the entire store (all its keys become available).", m.StoreName)
+	} else {
+		fmt.Fprintf(&b, "\nFound in multiple stores. Run 'valet setup' in the terminal — it will show the options and let the user choose which to use.")
+	}
 	return mcp.NewToolResultText(b.String()), nil
 }
 
@@ -364,7 +372,10 @@ func requireHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	if provider != "" {
 		msg += fmt.Sprintf(" [%s]", provider)
 	}
-	msg += "\n\nNext: check if the user already has this key with valet_wallet_search, then use 'valet secret set' or 'valet setup' in the terminal to store the value."
+	msg += "\n\nNext steps:\n"
+	msg += "1. Use valet_wallet_search to check if the user already has this key\n"
+	msg += "2. If found: run 'valet setup' in the terminal to let the user choose and link it\n"
+	msg += "3. If not found: run 'valet secret set " + key + "' in the terminal to prompt for the value"
 	return mcp.NewToolResultText(msg), nil
 }
 
