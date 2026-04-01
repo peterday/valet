@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 )
+
+var execCommand = osexec.Command
 
 // updateCheckResult is cached to disk.
 type updateCheckResult struct {
@@ -39,10 +42,42 @@ func startUpdateCheck() {
 		updateNoticeOnce.Do(func() {
 			latest := checkForUpdate()
 			if latest != "" && latest != version {
-				updateNotice = fmt.Sprintf("\nUpdate available: v%s → v%s. Run: valet update\n", version, latest)
+				if isAutoUpdateEnabled() {
+					// Auto-update: run valet update in background.
+					fmt.Fprintf(os.Stderr, "Auto-updating valet v%s → v%s...\n", version, latest)
+					valetPath, err := os.Executable()
+					if err != nil {
+						return
+					}
+					cmd := execCommand(valetPath, "update")
+					cmd.Stderr = os.Stderr
+					if err := cmd.Run(); err != nil {
+						fmt.Fprintf(os.Stderr, "Auto-update failed: %v. Run manually: valet update\n", err)
+					}
+				} else {
+					updateNotice = fmt.Sprintf("\nUpdate available: v%s → v%s. Run: valet update\n", version, latest)
+				}
 			}
 		})
 	}()
+}
+
+func isAutoUpdateEnabled() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".valet", "config.json"))
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		AutoUpdate bool `json:"auto_update"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		return false
+	}
+	return cfg.AutoUpdate
 }
 
 // printUpdateNotice prints the update notice if one is available.
