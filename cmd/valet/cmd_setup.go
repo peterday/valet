@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -198,23 +196,22 @@ Unlinked stores with matching secrets are offered for linking.`,
 				fmt.Printf("  %s\n", req.Description)
 			}
 
-			// Open browser for known providers.
+			// Show provider info if available.
 			p := provider.FindByEnvVar(name)
 			if p == nil && req.Provider != "" {
 				p = provider.Get(req.Provider)
 			}
 			if p != nil {
+				fmt.Printf("  Get a key at: %s\n", p.SetupURL)
 				if p.FreeTier != "" {
 					fmt.Printf("  Free tier: %s\n", p.FreeTier)
 				}
-				fmt.Printf("  Opening %s...\n", p.SetupURL)
-				openBrowser(p.SetupURL)
 			}
 
 			if req.Optional {
-				fmt.Printf("  Paste value (optional, enter to skip): ")
+				fmt.Printf("  Enter value (optional, enter to skip): ")
 			} else {
-				fmt.Printf("  Paste value: ")
+				fmt.Printf("  Enter value: ")
 			}
 
 			value, _ := reader.ReadString('\n')
@@ -244,19 +241,6 @@ Unlinked stores with matching secrets are offered for linking.`,
 		}
 		return nil
 	},
-}
-
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	default:
-		return
-	}
-	cmd.Start()
 }
 
 func parseChoice(s string, max int) int {

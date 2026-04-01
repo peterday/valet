@@ -909,7 +909,7 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 			if p.FreeTier != "" {
 				fmt.Fprintf(&b, " (%s)", p.FreeTier)
 			}
-			fmt.Fprintf(&b, ". Type `! valet setup` — it'll open %s and prompt you to paste the key.\"\n", p.SetupURL)
+			fmt.Fprintf(&b, ". Get one at %s, then type `! valet secret set %s` to save it.\"\n", p.SetupURL, key)
 		} else {
 			fmt.Fprintf(&b, "  \"Type `! valet secret set %s` to enter the value.\"\n", key)
 		}
