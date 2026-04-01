@@ -242,6 +242,13 @@ const helpAI = `AI tool integration:
 
   valet mcp install                                    # register with Claude Code, Cursor, etc.
   valet mcp install --claude-code                      # Claude Code only
+
+MCP tools: valet_status, valet_wallet_search, valet_require,
+valet_provider_search, valet_help.
+
+Use valet_provider_search to discover providers by use case, category,
+or keyword — then valet_require --provider <name> to declare all their
+env vars at once.
   valet mcp install --cursor                           # Cursor only
 
 Once installed, AI tools get structured access to Valet via MCP tools

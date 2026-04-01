@@ -27,6 +27,7 @@ func Serve(version string) error {
 	s.AddTool(statusTool, statusHandler)
 	s.AddTool(walletSearchTool, walletSearchHandler)
 	s.AddTool(requireTool, requireHandler)
+	s.AddTool(providerSearchTool, providerSearchHandler)
 	s.AddTool(helpTool, helpHandler)
 
 	return server.ServeStdio(s)
@@ -313,6 +314,77 @@ func mergeRequirement(requires map[string]domain.Requirement, key string, req do
 		}
 	}
 	requires[key] = req
+}
+
+// --- valet_provider_search: discover providers ---
+
+var providerSearchTool = mcp.NewTool("valet_provider_search",
+	mcp.WithDescription(`Search the provider registry to discover API providers and their env var names. Use this when:
+- You need to find the right provider for a use case (e.g. "payments", "email", "vector database")
+- You want to know what env vars a provider needs
+- You're looking for alternatives in a category (e.g. all AI providers)
+
+Returns provider names, descriptions, categories, env var names, and setup URLs. Never returns secret values.`),
+	mcp.WithString("query", mcp.Description("Search term: provider name, category (ai, payments, cloud, search, etc.), use case, or env var name")),
+	mcp.WithString("category", mcp.Description("Filter by category: ai, payments, cloud, search, communication, monitoring, database, cms, auth, social, devtools, storage, maps")),
+)
+
+func providerSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query := req.GetString("query", "")
+	category := req.GetString("category", "")
+
+	var results []*provider.Provider
+
+	if category != "" {
+		results = provider.FindByCategory(category)
+	} else if query != "" {
+		results = provider.Search(query)
+	} else {
+		// No filter — return all providers.
+		all := provider.Search("")
+		if len(all) == 0 {
+			return mcp.NewToolResultText("No providers loaded. Run 'valet providers update' in the terminal to fetch the registry."), nil
+		}
+		results = all
+	}
+
+	if len(results) == 0 {
+		msg := "No providers found"
+		if query != "" {
+			msg += fmt.Sprintf(" matching %q", query)
+		}
+		if category != "" {
+			msg += fmt.Sprintf(" in category %q", category)
+		}
+		msg += ".\n\nRun 'valet providers update' to fetch the latest registry, then try again."
+		return mcp.NewToolResultText(msg), nil
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Found %d provider(s):\n\n", len(results))
+
+	for _, p := range results {
+		fmt.Fprintf(&b, "## %s", p.DisplayName)
+		if p.Category != "" {
+			fmt.Fprintf(&b, " [%s]", p.Category)
+		}
+		fmt.Fprintf(&b, "\n")
+		if p.Description != "" {
+			fmt.Fprintf(&b, "%s\n", p.Description)
+		}
+		fmt.Fprintf(&b, "Setup: %s\n", p.SetupURL)
+		if p.FreeTier != "" {
+			fmt.Fprintf(&b, "Free tier: %s\n", p.FreeTier)
+		}
+		fmt.Fprintf(&b, "Env vars:")
+		for _, ev := range p.EnvVars {
+			fmt.Fprintf(&b, " %s", ev.Name)
+		}
+		fmt.Fprintf(&b, "\n")
+		fmt.Fprintf(&b, "Require: valet require --provider %s\n\n", p.Name)
+	}
+
+	return mcp.NewToolResultText(b.String()), nil
 }
 
 // --- valet_help: full CLI reference ---

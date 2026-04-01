@@ -21,6 +21,8 @@ const (
 type Provider struct {
 	Name        string      `toml:"name"`
 	DisplayName string      `toml:"display_name"`
+	Category    string      `toml:"category,omitempty"`
+	Description string      `toml:"description,omitempty"`
 	SetupURL    string      `toml:"setup_url"`
 	RevokeURL   string      `toml:"revoke_url,omitempty"` // defaults to setup_url if empty
 	FreeTier    string      `toml:"free_tier,omitempty"`
@@ -117,6 +119,54 @@ func (r *Registry) FindByEnvVar(envVar string) *Provider {
 func (r *Registry) All() map[string]*Provider {
 	r.load()
 	return r.providers
+}
+
+// Search finds providers matching a query string. Matches against name,
+// display name, category, description, and env var names (case-insensitive).
+func (r *Registry) Search(query string) []*Provider {
+	r.load()
+	q := strings.ToLower(query)
+	var results []*Provider
+	for _, p := range r.providers {
+		if matchesProvider(p, q) {
+			results = append(results, p)
+		}
+	}
+	return results
+}
+
+// FindByCategory returns all providers in a given category.
+func (r *Registry) FindByCategory(category string) []*Provider {
+	r.load()
+	cat := strings.ToLower(category)
+	var results []*Provider
+	for _, p := range r.providers {
+		if strings.ToLower(p.Category) == cat {
+			results = append(results, p)
+		}
+	}
+	return results
+}
+
+func matchesProvider(p *Provider, query string) bool {
+	if strings.Contains(strings.ToLower(p.Name), query) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(p.DisplayName), query) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(p.Category), query) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(p.Description), query) {
+		return true
+	}
+	for _, ev := range p.EnvVars {
+		if strings.Contains(strings.ToLower(ev.Name), query) {
+			return true
+		}
+	}
+	return false
 }
 
 // CheckPrefix validates that a value matches an expected prefix for an env var.
@@ -242,6 +292,16 @@ func Get(name string) *Provider {
 // FindByEnvVar searches the default registry for a provider by env var name.
 func FindByEnvVar(envVar string) *Provider {
 	return getDefault().FindByEnvVar(envVar)
+}
+
+// Search finds providers matching a query using the default registry.
+func Search(query string) []*Provider {
+	return getDefault().Search(query)
+}
+
+// FindByCategory returns providers in a category using the default registry.
+func FindByCategory(category string) []*Provider {
+	return getDefault().FindByCategory(category)
 }
 
 // CheckPrefix validates key format using the default registry.

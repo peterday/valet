@@ -114,20 +114,40 @@ private/internal provider definitions.
 }
 
 var providersListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List available providers",
+	Use:   "list [QUERY]",
+	Short: "List or search available providers",
+	Long: `List providers from the registry, optionally filtered by search query.
+
+  valet providers list                                 # all providers
+  valet providers list payments                        # search by category/keyword
+  valet providers list "vector database"               # search by use case`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		reg := provider.NewRegistry(provider.ProvidersBaseDir())
-		all := reg.All()
 
-		if len(all) == 0 {
+		var providers map[string]*provider.Provider
+		if len(args) == 1 {
+			results := reg.Search(args[0])
+			if len(results) == 0 {
+				fmt.Printf("No providers matching %q. Run 'valet providers update' to fetch the latest registry.\n", args[0])
+				return nil
+			}
+			providers = make(map[string]*provider.Provider)
+			for _, p := range results {
+				providers[p.Name] = p
+			}
+		} else {
+			providers = reg.All()
+		}
+
+		if len(providers) == 0 {
 			fmt.Println("No providers loaded. Run 'valet providers update' to fetch the registry.")
 			return nil
 		}
 
-		fmt.Printf("%-15s %-15s %-30s %s\n", "NAME", "DISPLAY", "ENV VARS", "FREE TIER")
-		fmt.Printf("%-15s %-15s %-30s %s\n", "----", "-------", "--------", "---------")
-		for _, p := range all {
+		fmt.Printf("%-18s %-15s %-15s %-25s %s\n", "NAME", "DISPLAY", "CATEGORY", "ENV VARS", "FREE TIER")
+		fmt.Printf("%-18s %-15s %-15s %-25s %s\n", "----", "-------", "--------", "--------", "---------")
+		for _, p := range providers {
 			var envNames []string
 			for _, ev := range p.EnvVars {
 				envNames = append(envNames, ev.Name)
@@ -139,11 +159,15 @@ var providersListCmd = &cobra.Command{
 					envStr += fmt.Sprintf(" (+%d)", len(envNames)-1)
 				}
 			}
+			cat := p.Category
+			if cat == "" {
+				cat = "-"
+			}
 			free := p.FreeTier
 			if free == "" {
 				free = "-"
 			}
-			fmt.Printf("%-15s %-15s %-30s %s\n", p.Name, p.DisplayName, envStr, free)
+			fmt.Printf("%-18s %-15s %-15s %-25s %s\n", p.Name, p.DisplayName, cat, envStr, free)
 		}
 		return nil
 	},
