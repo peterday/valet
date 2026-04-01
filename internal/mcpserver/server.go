@@ -903,21 +903,13 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	if len(matches) == 0 {
 		var b strings.Builder
 		fmt.Fprintf(&b, "%s not found in any personal store.\n\n", key)
-		if p != nil {
-			fmt.Fprintf(&b, "This is a %s key.\n", p.DisplayName)
-			fmt.Fprintf(&b, "Get one at: %s\n", p.SetupURL)
-			if p.FreeTier != "" {
-				fmt.Fprintf(&b, "Free tier: %s\n", p.FreeTier)
-			}
-			fmt.Fprintf(&b, "\n")
-		}
 		fmt.Fprintf(&b, "Present this to the user:\n")
 		if p != nil {
-			fmt.Fprintf(&b, "  \"You need a %s API key. ", p.DisplayName)
+			fmt.Fprintf(&b, "  \"You need a %s API key", p.DisplayName)
 			if p.FreeTier != "" {
-				fmt.Fprintf(&b, "They offer %s. ", p.FreeTier)
+				fmt.Fprintf(&b, " (%s)", p.FreeTier)
 			}
-			fmt.Fprintf(&b, "Get one at %s, then type `! valet secret set %s` to save it.\"\n", p.SetupURL, key)
+			fmt.Fprintf(&b, ". Type `! valet setup` — it'll open %s and prompt you to paste the key.\"\n", p.SetupURL)
 		} else {
 			fmt.Fprintf(&b, "  \"Type `! valet secret set %s` to enter the value.\"\n", key)
 		}
