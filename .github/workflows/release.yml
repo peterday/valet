@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          go build -ldflags "-s -w -X main.version=$VERSION" -o valet ./cmd/valet
+
+      - name: Package
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          ARCHIVE="valet_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
+          tar -czf "$ARCHIVE" valet
+          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: valet-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            valet_*.tar.gz
+            valet_*.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          cd artifacts
+          cat *.sha256 > checksums.txt
+          cat checksums.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.tar.gz
+            artifacts/checksums.txt
+          generate_release_notes: true
