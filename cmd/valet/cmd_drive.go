@@ -81,6 +81,9 @@ Alias: valet run`,
 
 		environ := os.Environ()
 		for k, v := range secrets {
+			if err := store.ValidateEnvVarName(k); err != nil {
+				return fmt.Errorf("invalid secret name %q: %w", k, err)
+			}
 			environ = append(environ, k+"="+v)
 		}
 

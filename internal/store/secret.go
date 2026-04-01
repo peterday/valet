@@ -10,6 +10,8 @@ import (
 	"github.com/peterday/valet/internal/domain"
 )
 
+const maxHistoryVersions = 10
+
 // SetSecret sets or updates a secret in a scope's vault.
 func (s *Store) SetSecret(projectSlug, scopePath, key, value string) error {
 	return s.setSecretInternal(projectSlug, scopePath, key, value, "")
@@ -21,6 +23,13 @@ func (s *Store) SetSecretWithProvider(projectSlug, scopePath, key, value, provid
 }
 
 func (s *Store) setSecretInternal(projectSlug, scopePath, key, value, provider string) error {
+	if err := ValidateEnvVarName(key); err != nil {
+		return err
+	}
+	if err := ValidateSecretValue(value); err != nil {
+		return err
+	}
+
 	slug, err := s.resolveProject(projectSlug)
 	if err != nil {
 		return err
@@ -50,9 +59,9 @@ func (s *Store) setSecretInternal(projectSlug, scopePath, key, value, provider s
 			content.History = make(map[string][]domain.VaultSecret)
 		}
 		content.History[key] = append([]domain.VaultSecret{existing}, content.History[key]...)
-		// Keep at most 10 historical versions.
-		if len(content.History[key]) > 10 {
-			content.History[key] = content.History[key][:10]
+		// Keep at most maxHistoryVersions historical versions.
+		if len(content.History[key]) > maxHistoryVersions {
+			content.History[key] = content.History[key][:maxHistoryVersions]
 		}
 	}
 

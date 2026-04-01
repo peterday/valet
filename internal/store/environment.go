@@ -8,6 +8,13 @@ import (
 
 // CreateEnvironment creates an environment directory under a project.
 func (s *Store) CreateEnvironment(projectSlug, envName string) error {
+	// Wildcard environment is allowed.
+	if envName != "*" {
+		if err := ValidateName(envName, "environment"); err != nil {
+			return err
+		}
+	}
+
 	slug, err := s.resolveProject(projectSlug)
 	if err != nil {
 		return err

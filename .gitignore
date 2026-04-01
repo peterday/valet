@@ -13,11 +13,6 @@
 # Go
 vendor/
 
-# Web build output (embedded at build time)
-web/out/
-web/node_modules/
-web/.next/
-
 # Local testing artifacts
 /.valet/
 /.valet.toml

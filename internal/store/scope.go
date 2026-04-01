@@ -15,6 +15,10 @@ import (
 // CreateScope creates a scope directory with an empty manifest and vault.
 // scopePath is like "dev/runtime" or "prod/integrations/stripe".
 func (s *Store) CreateScope(projectSlug, scopePath string) error {
+	if err := ValidateScopePath(scopePath); err != nil {
+		return err
+	}
+
 	slug, err := s.resolveProject(projectSlug)
 	if err != nil {
 		return err

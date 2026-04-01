@@ -31,8 +31,12 @@ func (s *Store) SyncDotenv(projectSlug, env, filePath string) error {
 	for _, k := range keys {
 		v := secrets[k]
 		// Quote values that contain spaces, newlines, or special chars.
-		if strings.ContainsAny(v, " \t\n\"'#") {
-			v = `"` + strings.ReplaceAll(v, `"`, `\"`) + `"`
+		if strings.ContainsAny(v, " \t\n\"'#\\$`!") {
+			v = strings.ReplaceAll(v, `\`, `\\`)
+			v = strings.ReplaceAll(v, `"`, `\"`)
+			v = strings.ReplaceAll(v, "\n", `\n`)
+			v = strings.ReplaceAll(v, "$", `\$`)
+			v = `"` + v + `"`
 		}
 		fmt.Fprintf(&b, "%s=%s\n", k, v)
 	}

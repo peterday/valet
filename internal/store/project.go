@@ -12,7 +12,10 @@ import (
 
 // CreateProject creates a new project in the store.
 func (s *Store) CreateProject(name string) (*domain.Project, error) {
-	slug := name // for now, slug == name (caller can sanitize)
+	if err := ValidateName(name, "project"); err != nil {
+		return nil, err
+	}
+	slug := name
 	dir := s.projectRoot(slug)
 
 	if _, err := os.Stat(dir); err == nil {

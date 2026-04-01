@@ -13,6 +13,16 @@ import (
 
 // AddUser adds a user to the store.
 func (s *Store) AddUser(name, github, publicKey string) (*domain.User, error) {
+	if err := ValidateName(name, "user"); err != nil {
+		return nil, err
+	}
+
+	// Validate public key format.
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" {
+		return nil, fmt.Errorf("public key cannot be empty")
+	}
+
 	dir := filepath.Join(s.Root, "users")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err

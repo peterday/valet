@@ -29,6 +29,9 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Test
+        run: go test -race ./...
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}

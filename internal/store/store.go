@@ -66,8 +66,7 @@ func Open(root string, id *identity.Identity) (*Store, error) {
 	s := &Store{Root: root, Meta: &meta, Identity: id}
 
 	// Auto-detect single project as default.
-	projects, _ := s.ListProjects()
-	if len(projects) == 1 {
+	if projects, err := s.ListProjects(); err == nil && len(projects) == 1 {
 		s.DefaultProject = projects[0].Slug
 	}
 

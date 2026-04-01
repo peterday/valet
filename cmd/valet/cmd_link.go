@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/config"
@@ -179,16 +180,8 @@ func ensureInGitignore(dir, filename string) {
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	data, _ := os.ReadFile(gitignorePath)
 
-	for _, line := range filepath.SplitList(string(data)) {
-		if line == filename {
-			return
-		}
-	}
-
-	// Simple check line by line.
-	lines := splitLines(string(data))
-	for _, line := range lines {
-		if line == filename {
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == filename {
 			return
 		}
 	}
@@ -203,21 +196,6 @@ func ensureInGitignore(dir, filename string) {
 		f.WriteString("\n")
 	}
 	f.WriteString(filename + "\n")
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
 }
 
 func init() {

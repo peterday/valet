@@ -31,9 +31,11 @@ func (s *Store) CreateInvite(projectSlug string, envs []string, expiry time.Dura
 		return nil, "", fmt.Errorf("generating temp keypair: %w", err)
 	}
 
-	// Generate a short ID.
-	idBytes := make([]byte, 4)
-	rand.Read(idBytes)
+	// Generate invite ID with sufficient entropy.
+	idBytes := make([]byte, 16)
+	if _, err := rand.Read(idBytes); err != nil {
+		return nil, "", fmt.Errorf("generating invite ID: %w", err)
+	}
 	inviteID := hex.EncodeToString(idBytes)
 
 	// Resolve creator name.
@@ -202,10 +204,17 @@ func (s *Store) ConsumeInvite(tempPrivKey string, joinerName string, joinerID *i
 	// Update or delete invite.
 	invite.Uses++
 	if invite.MaxUses > 0 && invite.Uses >= invite.MaxUses {
-		os.Remove(invitePath)
+		if err := os.Remove(invitePath); err != nil {
+			return fmt.Errorf("removing consumed invite: %w", err)
+		}
 	} else {
-		data, _ := json.MarshalIndent(invite, "", "  ")
-		os.WriteFile(invitePath, data, 0644)
+		data, err := json.MarshalIndent(invite, "", "  ")
+		if err != nil {
+			return fmt.Errorf("serializing invite: %w", err)
+		}
+		if err := os.WriteFile(invitePath, data, 0644); err != nil {
+			return fmt.Errorf("updating invite: %w", err)
+		}
 	}
 
 	return nil
@@ -274,8 +283,13 @@ func (s *Store) PruneExpiredInvites(projectSlug string) (int, error) {
 				if changed && len(newRecipients) > 0 {
 					manifest.Recipients = newRecipients
 					manifest.UpdatedAt = time.Now().UTC()
-					s.reencryptVault(slug, scope.Path, manifest)
-					s.writeManifest(slug, scope.Path, manifest)
+					if err := s.reencryptVault(slug, scope.Path, manifest); err != nil {
+						fmt.Fprintf(os.Stderr, "warning: re-encrypting scope %s: %v\n", scope.Path, err)
+						continue
+					}
+					if err := s.writeManifest(slug, scope.Path, manifest); err != nil {
+						fmt.Fprintf(os.Stderr, "warning: writing manifest %s: %v\n", scope.Path, err)
+					}
 				}
 			}
 		}
