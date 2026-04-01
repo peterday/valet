@@ -43,14 +43,15 @@ func Serve(version string) error {
 // --- valet_init: initialize valet in a project ---
 
 var initTool = mcp.NewTool("valet_init",
-	mcp.WithDescription(`Initialize Valet in the current project. Creates an encrypted secret store and returns a CLAUDE.md snippet to add to the project.
+	mcp.WithDescription(`Set up Valet in the current project. Call this when the user asks to add secrets management or when valet_status reports no .valet.toml.
 
-Call this when:
-- Setting up a new project that will need API keys or secrets
-- The user asks to add secrets management
-- valet_status reports no .valet.toml
+Two modes:
+- Without 'mode': returns project info, available stores, and options — present these to the user and ask how they want to store secrets
+- With 'mode': runs the init command with the chosen configuration
 
-After init, use valet_provider_search to discover what API keys the project needs, then valet_require to declare them.`),
+Always call without 'mode' first so the user can choose.`),
+	mcp.WithString("mode", mcp.Description("How to store secrets. Options: 'embedded' (in .valet/, committed encrypted), 'personal' (link existing personal store), 'shared' (link team store). Omit to see options first.")),
+	mcp.WithString("store", mcp.Description("Store name or URI for personal/shared mode (e.g. my-keys, github:acme/secrets)")),
 )
 
 func initHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -61,38 +62,135 @@ func initHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 
 	// Check if already initialized.
 	if _, err := config.FindValetToml(cwd); err == nil {
-		return mcp.NewToolResultText("Project already initialized — .valet.toml exists.\n\nUse valet_status to see current state, or valet_require to declare secrets."), nil
+		return mcp.NewToolResultText("Project already initialized — .valet.toml exists.\n\nUse valet_status to see current state, or valet_scan to detect .env files."), nil
 	}
 
-	// Run valet init via the CLI.
+	mode := req.GetString("mode", "")
+	storeName := req.GetString("store", "")
+
+	// If no mode specified, return options for the user to choose.
+	if mode == "" {
+		return initOptionsHandler(cwd)
+	}
+
+	// Run init with the chosen mode.
 	valetPath, err := os.Executable()
 	if err != nil {
 		valetPath = "valet"
 	}
 
-	cmd := exec.Command(valetPath, "init")
+	var args []string
+	switch mode {
+	case "embedded":
+		args = []string{"init"}
+	case "personal":
+		if storeName == "" {
+			return errResult("'store' is required for personal mode (e.g. my-keys)")
+		}
+		args = []string{"init", "--local", storeName}
+	case "shared":
+		if storeName == "" {
+			return errResult("'store' is required for shared mode (e.g. github:acme/secrets)")
+		}
+		args = []string{"init", "--shared", storeName}
+	default:
+		return errResult("unknown mode %q — use 'embedded', 'personal', or 'shared'", mode)
+	}
+
+	cmd := exec.Command(valetPath, args...)
 	cmd.Dir = cwd
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errResult("valet init failed: %s\n%s", err, string(output))
 	}
 
-	// Generate CLAUDE.md snippet with project-aware run command.
 	snippet := generateClaudeMDSnippet(cwd)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Valet initialized.\n\n%s", string(output))
+	fmt.Fprintf(&b, "Valet initialized (%s mode).\n\n%s", mode, string(output))
 	fmt.Fprintf(&b, "\n---\n\n")
 	fmt.Fprintf(&b, "Add this to the project's CLAUDE.md (create if it doesn't exist):\n\n")
 	fmt.Fprintf(&b, "```markdown\n%s```\n\n", snippet)
 	fmt.Fprintf(&b, "Next steps:\n")
 	fmt.Fprintf(&b, "1. Write the CLAUDE.md snippet above to the project\n")
 	fmt.Fprintf(&b, "2. Call valet_scan to detect existing .env files and match against wallet/providers\n")
-	fmt.Fprintf(&b, "3. Based on scan results, link wallet and/or import .env\n")
-	fmt.Fprintf(&b, "4. Call valet_require for each key to declare requirements\n")
-	fmt.Fprintf(&b, "5. For missing keys, ask the user to type: ! valet setup")
+	fmt.Fprintf(&b, "3. Based on scan results, link wallet and/or ask user to type: ! valet import .env\n")
+	fmt.Fprintf(&b, "4. Call valet_require for each key to declare requirements")
 
 	return mcp.NewToolResultText(b.String()), nil
+}
+
+func initOptionsHandler(cwd string) (*mcp.CallToolResult, error) {
+	var b strings.Builder
+
+	// Detect project type.
+	runCmd := detectRunCommand(cwd)
+	fmt.Fprintf(&b, "Project detected: run command is `%s`\n\n", runCmd)
+
+	// Check for existing .env files.
+	envFiles := findEnvFiles(cwd)
+	if len(envFiles) > 0 {
+		fmt.Fprintf(&b, "Existing .env files found:\n")
+		for _, f := range envFiles {
+			fmt.Fprintf(&b, "  %s\n", f)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+
+	// List available personal stores.
+	id, err := identity.Load()
+	if err == nil {
+		stores, _ := store.ListAllStores(id)
+		if len(stores) > 0 {
+			fmt.Fprintf(&b, "Available personal stores:\n")
+			for _, s := range stores {
+				fmt.Fprintf(&b, "  %s\n", s.Meta.Name)
+			}
+			fmt.Fprintf(&b, "\n")
+		}
+	}
+
+	fmt.Fprintf(&b, "Ask the user how they want to store secrets:\n\n")
+	fmt.Fprintf(&b, "1. **Embedded** (recommended for most projects)\n")
+	fmt.Fprintf(&b, "   Secrets encrypted in .valet/ inside the project. Safe to commit.\n")
+	fmt.Fprintf(&b, "   → call valet_init with mode='embedded'\n\n")
+	fmt.Fprintf(&b, "2. **Link personal store**\n")
+	fmt.Fprintf(&b, "   Use keys from an existing personal store (e.g. my-keys).\n")
+	fmt.Fprintf(&b, "   → call valet_init with mode='personal', store='<name>'\n\n")
+	fmt.Fprintf(&b, "3. **Link shared/team store**\n")
+	fmt.Fprintf(&b, "   Link a git-backed team store for shared secrets.\n")
+	fmt.Fprintf(&b, "   → call valet_init with mode='shared', store='github:org/repo'\n")
+
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+// findEnvFiles returns .env file paths relative to dir.
+func findEnvFiles(dir string) []string {
+	candidates := []string{
+		".env", ".env.local", ".env.development", ".env.staging",
+		".env.production", ".env.test", ".env.dev", ".env.prod",
+	}
+	// Also check common subdirectories.
+	subdirs := []string{"", "web", "apps/web", "frontend", "backend", "server", "api"}
+
+	var found []string
+	for _, sub := range subdirs {
+		base := dir
+		if sub != "" {
+			base = filepath.Join(dir, sub)
+		}
+		for _, name := range candidates {
+			path := filepath.Join(base, name)
+			if _, err := os.Stat(path); err == nil {
+				rel := name
+				if sub != "" {
+					rel = sub + "/" + name
+				}
+				found = append(found, rel)
+			}
+		}
+	}
+	return found
 }
 
 // generateClaudeMDSnippet returns the recommended CLAUDE.md content for a project.
@@ -180,11 +278,8 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 		return errResult("cannot get working directory: %v", err)
 	}
 
-	// Find .env files.
-	envFiles := []string{
-		".env", ".env.local", ".env.development", ".env.staging",
-		".env.production", ".env.test", ".env.dev", ".env.prod",
-	}
+	// Find .env files including in subdirectories.
+	envFilePaths := findEnvFiles(cwd)
 
 	type envFileInfo struct {
 		Name string
@@ -193,16 +288,16 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 	var found []envFileInfo
 	allKeys := make(map[string]string) // key → which file it came from
 
-	for _, name := range envFiles {
-		path := filepath.Join(cwd, name)
-		keys, err := scanEnvFileKeys(path)
+	for _, relPath := range envFilePaths {
+		absPath := filepath.Join(cwd, relPath)
+		keys, err := scanEnvFileKeys(absPath)
 		if err != nil || len(keys) == 0 {
 			continue
 		}
-		found = append(found, envFileInfo{Name: name, Keys: keys})
+		found = append(found, envFileInfo{Name: relPath, Keys: keys})
 		for _, k := range keys {
 			if _, exists := allKeys[k]; !exists {
-				allKeys[k] = name
+				allKeys[k] = relPath
 			}
 		}
 	}
@@ -271,11 +366,27 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 	} else {
 		fmt.Fprintf(&b, "\nNo matching keys found in wallet.\n\n")
 		fmt.Fprintf(&b, "Recommendation:\n")
-		fmt.Fprintf(&b, "1. Ask user to type: ! valet import .env\n")
 	}
 
-	fmt.Fprintf(&b, "2. Call valet_require for each key to declare requirements\n")
-	fmt.Fprintf(&b, "3. After import, the .env file can be deleted (secrets are now encrypted in .valet/)")
+	// Import instructions for each .env file.
+	fmt.Fprintf(&b, "\nTo import secrets, ask the user to type:\n")
+	for _, f := range found {
+		env := "dev"
+		if strings.Contains(f.Name, "production") || strings.Contains(f.Name, "prod") {
+			env = "prod"
+		} else if strings.Contains(f.Name, "staging") {
+			env = "staging"
+		} else if strings.Contains(f.Name, "test") {
+			env = "test"
+		}
+		if env == "dev" {
+			fmt.Fprintf(&b, "  ! valet import %s\n", f.Name)
+		} else {
+			fmt.Fprintf(&b, "  ! valet import %s -e %s\n", f.Name, env)
+		}
+	}
+	fmt.Fprintf(&b, "\nThen: call valet_require for each key to declare requirements.\n")
+	fmt.Fprintf(&b, "After import, .env files can be deleted (secrets are now encrypted in .valet/).")
 
 	return mcp.NewToolResultText(b.String()), nil
 }
