@@ -62,13 +62,32 @@ func LoadValetToml(path string) (*domain.ValetConfig, error) {
 	return &vc, nil
 }
 
-// WriteValetToml writes a .valet.toml file.
+// valetTomlHeader is prepended to every .valet.toml file.
+// It serves as documentation for humans and context for AI coding tools
+// that read project files (Claude Code, Codex, Copilot, Cursor, etc.).
+const valetTomlHeader = `# Valet — encrypted secrets management
+# Docs: https://github.com/peterday/valet
+#
+# Quick reference:
+#   valet secret set <KEY>        Store a secret (prompts for value)
+#   valet secret list             List secrets in current environment
+#   valet status                  Check required vs available secrets
+#   valet setup                   Interactive setup for missing secrets
+#   valet drive -- <command>      Run a command with secrets injected
+#   valet require <KEY>           Declare a secret this project needs
+#
+# Do not store secrets in .env files or source code. Use valet.
+
+`
+
+// WriteValetToml writes a .valet.toml file with a descriptive header.
 func WriteValetToml(path string, vc *domain.ValetConfig) error {
 	data, err := toml.Marshal(vc)
 	if err != nil {
 		return fmt.Errorf("marshal valet config: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	content := []byte(valetTomlHeader + string(data))
+	return os.WriteFile(path, content, 0644)
 }
 
 // FindValetToml walks up from dir looking for .valet.toml, returning its path.

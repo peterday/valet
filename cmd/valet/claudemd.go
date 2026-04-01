@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,11 +12,9 @@ import (
 type projectHint struct {
 	runCommand string // e.g. "npm start", "go run .", "python app.py"
 	devCommand string // e.g. "npm run dev", "go run ."
-	framework  string // e.g. "Next.js", "Flask", "Express"
 }
 
-// detectProject looks at the current directory and tries to figure out
-// what kind of project this is so we can generate a useful CLAUDE.md snippet.
+// detectProject looks at the current directory to figure out the run command.
 func detectProject(dir string) projectHint {
 	var h projectHint
 
@@ -27,17 +24,8 @@ func detectProject(dir string) projectHint {
 			Scripts map[string]string `json:"scripts"`
 		}
 		if json.Unmarshal(data, &pkg) == nil {
-			if cmd, ok := pkg.Scripts["dev"]; ok {
+			if _, ok := pkg.Scripts["dev"]; ok {
 				h.devCommand = "npm run dev"
-				// Detect framework from the dev command.
-				switch {
-				case strings.Contains(cmd, "next"):
-					h.framework = "Next.js"
-				case strings.Contains(cmd, "vite"):
-					h.framework = "Vite"
-				case strings.Contains(cmd, "nuxt"):
-					h.framework = "Nuxt"
-				}
 			}
 			if _, ok := pkg.Scripts["start"]; ok {
 				h.runCommand = "npm start"
@@ -75,7 +63,6 @@ func detectProject(dir string) projectHint {
 }
 
 func detectPythonCommand(dir string) string {
-	// Check for common entry points.
 	for _, candidate := range []string{"app.py", "main.py", "manage.py", "server.py"} {
 		if _, err := os.Stat(filepath.Join(dir, candidate)); err == nil {
 			if candidate == "manage.py" {
@@ -87,89 +74,41 @@ func detectPythonCommand(dir string) string {
 	return "python app.py"
 }
 
-// valetClaudeMDSnippet generates the CLAUDE.md content for a valet-enabled project.
-func valetClaudeMDSnippet(hint projectHint) string {
-	driveExample := "valet drive -- <command>"
+// printAITip prints a one-liner tip about adding valet context to AI tool configs.
+func printAITip(hint projectHint) {
+	cmd := "<command>"
 	if hint.devCommand != "" {
-		driveExample = "valet drive -- " + hint.devCommand
+		cmd = hint.devCommand
 	} else if hint.runCommand != "" {
-		driveExample = "valet drive -- " + hint.runCommand
+		cmd = hint.runCommand
 	}
 
-	var b strings.Builder
-	b.WriteString("## Secrets\n\n")
-	b.WriteString("This project uses [Valet](https://github.com/peterday/valet) for secrets management.\n\n")
-	b.WriteString("**Key rules:**\n")
-	b.WriteString("- Never write secrets or API keys to `.env` files, source code, or config files\n")
-	b.WriteString("- Use `valet secret set <NAME>` to store a secret (prompts the user for the value)\n")
-	b.WriteString("- Use `valet require <NAME> --provider <provider>` to declare a new secret dependency in `.valet.toml`\n")
-	b.WriteString("- Run the app with secrets injected: `" + driveExample + "`\n")
-	b.WriteString("\n")
-	b.WriteString("**Useful commands:**\n")
-	b.WriteString("- `valet status` — check which required secrets are set vs missing\n")
-	b.WriteString("- `valet setup` — interactive walkthrough to configure all missing secrets\n")
-	b.WriteString("- `valet secret list` — list all secrets in the current environment\n")
-
-	return b.String()
+	fmt.Println()
+	fmt.Println("Tip: Using AI tools? Add this to your CLAUDE.md, AGENTS.md, or similar:")
+	fmt.Printf("  This project uses Valet for secrets. Run `valet status` for details, `valet drive -- %s` to run.\n", cmd)
 }
 
-// writeClaudeMDSnippet appends or creates the CLAUDE.md with valet instructions.
-// Returns true if the file was modified.
-func writeClaudeMDSnippet(dir string, hint projectHint) (bool, error) {
-	claudePath := filepath.Join(dir, "CLAUDE.md")
-	snippet := valetClaudeMDSnippet(hint)
-
-	existing, err := os.ReadFile(claudePath)
-	if err == nil {
-		// File exists — check if it already has valet instructions.
-		if strings.Contains(string(existing), "valet") {
-			return false, nil
-		}
-		// Append to existing file.
-		content := string(existing)
-		if !strings.HasSuffix(content, "\n") {
-			content += "\n"
-		}
-		content += "\n" + snippet
-		return true, os.WriteFile(claudePath, []byte(content), 0644)
+// hasAIConfigFiles checks if any common AI tool config files exist.
+func hasAIConfigFiles(dir string) bool {
+	candidates := []string{
+		"CLAUDE.md",
+		"AGENTS.md",
+		".github/copilot-instructions.md",
+		".cursorrules",
+		".cursor/rules",
 	}
-
-	if !os.IsNotExist(err) {
-		return false, err
+	for _, f := range candidates {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			return true
+		}
 	}
-
-	// Create new file.
-	return true, os.WriteFile(claudePath, []byte(snippet), 0644)
+	return false
 }
 
-// offerClaudeMD prompts the user to add valet instructions to CLAUDE.md.
-func offerClaudeMD(dir string, hint projectHint) {
-	claudePath := filepath.Join(dir, "CLAUDE.md")
-
-	// Check if CLAUDE.md already has valet instructions.
-	if existing, err := os.ReadFile(claudePath); err == nil {
-		if strings.Contains(string(existing), "valet") {
-			return
-		}
-	}
-
-	fmt.Print("\nAdd valet instructions to CLAUDE.md for AI tools? [Y/n]: ")
-	reader := bufio.NewReader(os.Stdin)
-	answer, _ := reader.ReadString('\n')
-	answer = strings.TrimSpace(strings.ToLower(answer))
-
-	if answer != "" && answer != "y" && answer != "yes" {
-		return
-	}
-
-	wrote, err := writeClaudeMDSnippet(dir, hint)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not write CLAUDE.md: %v\n", err)
-		return
-	}
-	if wrote {
-		if _, err := os.Stat(claudePath); err == nil {
-			fmt.Println("Updated CLAUDE.md with valet instructions.")
-		}
+// maybePrintAITip only shows the tip if the project has AI config files,
+// suggesting the user already uses AI tools.
+func maybePrintAITip(dir string, hint projectHint) {
+	if hasAIConfigFiles(dir) {
+		printAITip(hint)
 	}
 }
