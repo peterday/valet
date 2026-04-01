@@ -22,6 +22,7 @@ type Provider struct {
 	Name        string      `toml:"name"`
 	DisplayName string      `toml:"display_name"`
 	SetupURL    string      `toml:"setup_url"`
+	RevokeURL   string      `toml:"revoke_url,omitempty"` // defaults to setup_url if empty
 	FreeTier    string      `toml:"free_tier,omitempty"`
 	EnvVars     []EnvVar    `toml:"env_vars"`
 	Validate    *Validation `toml:"validate,omitempty"`
@@ -29,11 +30,31 @@ type Provider struct {
 	MasterKey   *MasterKey  `toml:"master_key,omitempty"`
 }
 
+// GetRevokeURL returns the revoke URL, falling back to setup URL.
+func (p *Provider) GetRevokeURL() string {
+	if p.RevokeURL != "" {
+		return p.RevokeURL
+	}
+	return p.SetupURL
+}
+
 // EnvVar is a single environment variable declared by a provider.
 type EnvVar struct {
-	Name      string `toml:"name"`
-	Prefix    string `toml:"prefix,omitempty"`
-	Sensitive bool   `toml:"sensitive,omitempty"`
+	Name      string   `toml:"name"`
+	Prefix    string   `toml:"prefix,omitempty"`    // single prefix (convenience)
+	Prefixes  []string `toml:"prefixes,omitempty"`  // multiple valid prefixes
+	Sensitive bool     `toml:"sensitive,omitempty"`
+}
+
+// AllPrefixes returns all valid prefixes for this env var.
+// Merges prefix (singular) and prefixes (array).
+func (ev *EnvVar) AllPrefixes() []string {
+	var all []string
+	if ev.Prefix != "" {
+		all = append(all, ev.Prefix)
+	}
+	all = append(all, ev.Prefixes...)
+	return all
 }
 
 // Validation describes how to test if a key works.
@@ -98,19 +119,27 @@ func (r *Registry) All() map[string]*Provider {
 	return r.providers
 }
 
-// CheckPrefix validates that a value matches the expected prefix for an env var.
+// CheckPrefix validates that a value matches an expected prefix for an env var.
 func (r *Registry) CheckPrefix(envVar, value string) (providerName, expectedPrefix string, ok bool) {
 	p := r.FindByEnvVar(envVar)
 	if p == nil {
 		return "", "", true
 	}
 	for _, ev := range p.EnvVars {
-		if ev.Name == envVar && ev.Prefix != "" {
-			if len(value) >= len(ev.Prefix) && value[:len(ev.Prefix)] == ev.Prefix {
-				return p.DisplayName, ev.Prefix, true
-			}
-			return p.DisplayName, ev.Prefix, false
+		if ev.Name != envVar {
+			continue
 		}
+		prefixes := ev.AllPrefixes()
+		if len(prefixes) == 0 {
+			return "", "", true // no prefix defined
+		}
+		for _, pfx := range prefixes {
+			if len(value) >= len(pfx) && value[:len(pfx)] == pfx {
+				return p.DisplayName, pfx, true
+			}
+		}
+		// None matched — report first prefix as expected.
+		return p.DisplayName, prefixes[0], false
 	}
 	return "", "", true
 }
