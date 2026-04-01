@@ -25,7 +25,20 @@ A store is where your encrypted secrets live. Start simple, scale up as needed.
 
 **Embedded** — `valet init` — secrets live in `.valet/` inside your project. Safe to commit. Best for solo devs and small teams.
 
-**Personal** — `valet store create my-keys` — a standalone store at `~/.valet/stores/` for keys you reuse across projects.
+**Personal** — `valet store create my-keys` — a standalone store at `~/.valet/stores/` for keys you reuse across projects. Back it up to GitHub with a private repo:
+
+```bash
+valet store create github:pday/my-keys             # creates + links to private repo
+valet secret set OPENAI_API_KEY --value sk-abc -s my-keys
+valet push -s my-keys                              # backs up to GitHub
+```
+
+Now your keys are encrypted on GitHub and sync across machines:
+
+```bash
+# On another machine
+valet join github:pday/my-keys                     # clones your personal store
+```
 
 **Team** — `valet store create github:acme/api-secrets` — a standalone store backed by a git repo. The whole team shares it.
 
@@ -59,6 +72,36 @@ valet sync .env -e prod
 ```
 
 Secrets are isolated per environment. Grant a teammate `dev` without exposing `prod`.
+
+## Using Personal Keys in a Project
+
+You have API keys in a personal store. Your project needs them. Two ways to connect them:
+
+### Link your personal store (keys stay personal)
+
+```bash
+cd ~/code/my-api
+valet init --local my-keys
+```
+
+Now `valet drive` and `valet sync` pull from both your personal store and the project's embedded store. Nothing is copied — your keys stay in `my-keys`, and the link is in `.valet.local.toml` (gitignored, so teammates don't see it).
+
+### Copy keys into the project store (self-contained)
+
+```bash
+valet secret sync --to .
+```
+
+This copies all resolved secrets into the embedded store. The project becomes self-contained — no personal store link needed. Good for when the project should have its own copy of the keys.
+
+### Copy keys into a team store (share with team)
+
+```bash
+valet secret sync --to api-secrets
+valet push
+```
+
+Copies your personal keys into the team store so teammates get them too.
 
 ## Sharing with a Team
 
