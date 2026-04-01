@@ -28,6 +28,7 @@ func Serve(version string) error {
 
 	s.AddTool(initTool, initHandler)
 	s.AddTool(scanTool, scanHandler)
+	s.AddTool(importTool, importHandler)
 	s.AddTool(statusTool, statusHandler)
 	s.AddTool(walletSearchTool, walletSearchHandler)
 	s.AddTool(linkTool, linkHandler)
@@ -271,9 +272,9 @@ func runScan(cwd string) string {
 			env = "test"
 		}
 		if env == "dev" {
-			fmt.Fprintf(&b, "  ! valet import %s\n", f.Name)
+			fmt.Fprintf(&b, "  valet_import file=%q\n", f.Name)
 		} else {
-			fmt.Fprintf(&b, "  ! valet import %s -e %s\n", f.Name, env)
+			fmt.Fprintf(&b, "  valet_import file=%q env=%q\n", f.Name, env)
 		}
 	}
 
@@ -438,7 +439,7 @@ Returns:
 
 Based on the results, present the user with options:
 - Link their wallet for keys they already have (valet_link)
-- Import .env into the project store (ask user to type: ! valet import .env)
+- Import .env into the project store (call valet_import)
 - Declare requirements for all keys (valet_require)`),
 )
 
@@ -535,7 +536,7 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 		}
 		fmt.Fprintf(&b, "\nAsk the user: should I link your wallet (%s) or import everything from .env?\n", strings.Join(storeNames, ", "))
 		fmt.Fprintf(&b, "  Link: call valet_link for each store — keys auto-update on rotation\n")
-		fmt.Fprintf(&b, "  Import: ask user to type ! valet import .env — project owns copies\n")
+		fmt.Fprintf(&b, "  Import: call valet_import for each .env file — project owns copies\n")
 		fmt.Fprintf(&b, "  Both: link wallet for keys already there, import .env for the rest\n")
 	}
 
@@ -551,14 +552,14 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 			env = "test"
 		}
 		if env == "dev" {
-			fmt.Fprintf(&b, "  ! valet import %s\n", f.Name)
+			fmt.Fprintf(&b, "  valet_import file=%q\n", f.Name)
 		} else {
-			fmt.Fprintf(&b, "  ! valet import %s -e %s\n", f.Name, env)
+			fmt.Fprintf(&b, "  valet_import file=%q env=%q\n", f.Name, env)
 		}
 	}
 
 	// Declare requirements — give Claude exact tool calls.
-	fmt.Fprintf(&b, "\nTo declare requirements, call valet_require:\n")
+	fmt.Fprintf(&b, "\nThen declare requirements, call valet_require:\n")
 	for name := range providerKeys {
 		fmt.Fprintf(&b, "  valet_require provider=%q    (declares all %s env vars)\n", name, providerInfo[name].DisplayName)
 	}
@@ -597,6 +598,144 @@ func scanEnvFileKeys(path string) ([]string, error) {
 		}
 	}
 	return keys, scanner.Err()
+}
+
+// --- valet_import: import secrets from .env files ---
+
+var importTool = mcp.NewTool("valet_import",
+	mcp.WithDescription(`Import secrets from a .env file into the project's encrypted store. The file is read from disk and values are encrypted directly — secret values never pass through the AI context.
+
+Call this after valet_init when the project has existing .env files. Safe to call multiple times — existing secrets are skipped unless overwrite is true.`),
+	mcp.WithString("file", mcp.Required(), mcp.Description("Path to .env file (e.g. .env, web/.env.local, .env.production)")),
+	mcp.WithString("env", mcp.Description("Target environment (default: auto-detected from filename, or dev)")),
+	mcp.WithBoolean("overwrite", mcp.Description("Overwrite existing secrets (default: false)")),
+)
+
+func importHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	file := req.GetString("file", "")
+	env := req.GetString("env", "")
+	overwrite := req.GetBool("overwrite", false)
+
+	if file == "" {
+		return errResult("'file' is required (e.g. .env)")
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errResult("cannot get working directory: %v", err)
+	}
+
+	// Auto-detect environment from filename.
+	if env == "" {
+		env = "dev"
+		if strings.Contains(file, "production") || strings.Contains(file, "prod") {
+			env = "prod"
+		} else if strings.Contains(file, "staging") {
+			env = "staging"
+		} else if strings.Contains(file, "test") {
+			env = "test"
+		}
+	}
+
+	// Resolve the file path.
+	filePath := file
+	if !filepath.IsAbs(filePath) {
+		filePath = filepath.Join(cwd, filePath)
+	}
+
+	// Parse .env file — get key names and values.
+	secrets, err := parseEnvFile(filePath)
+	if err != nil {
+		return errResult("reading %s: %v", file, err)
+	}
+	if len(secrets) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("No secrets found in %s.", file)), nil
+	}
+
+	// Open the store.
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found — run 'valet identity init' first")
+	}
+	s, err := store.Resolve(id)
+	if err != nil {
+		return errResult("opening store: %v", err)
+	}
+	project, err := s.ResolveDefaultProject()
+	if err != nil {
+		return errResult("no project found: %v", err)
+	}
+
+	scope := env + "/default"
+	existing, _ := s.ListSecretsInEnv(project, env)
+
+	imported := 0
+	skipped := 0
+	var importedKeys, skippedKeys []string
+
+	for key, value := range secrets {
+		if _, found := existing[key]; found && !overwrite {
+			skipped++
+			skippedKeys = append(skippedKeys, key)
+			continue
+		}
+		if err := s.SetSecret(project, scope, key, value); err != nil {
+			return errResult("setting %s: %v", key, err)
+		}
+		imported++
+		importedKeys = append(importedKeys, key)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Imported from %s into %s:\n", file, env)
+	for _, k := range importedKeys {
+		fmt.Fprintf(&b, "  ✓ %s\n", k)
+	}
+	for _, k := range skippedKeys {
+		fmt.Fprintf(&b, "  - %s (already exists)\n", k)
+	}
+	fmt.Fprintf(&b, "\n%d imported, %d skipped.", imported, skipped)
+	if skipped > 0 && !overwrite {
+		fmt.Fprintf(&b, " Use overwrite=true to replace existing secrets.")
+	}
+
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+// parseEnvFile reads a .env file and returns key=value pairs.
+func parseEnvFile(path string) (map[string]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	secrets := make(map[string]string)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		value := strings.TrimSpace(line[idx+1:])
+		// Strip surrounding quotes.
+		if len(value) >= 2 {
+			if (value[0] == '"' && value[len(value)-1] == '"') ||
+				(value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		key = strings.TrimPrefix(key, "export ")
+		if key != "" {
+			secrets[key] = value
+		}
+	}
+	return secrets, scanner.Err()
 }
 
 // --- valet_status: the "tell me everything" tool ---
