@@ -17,6 +17,8 @@ func helpText(topic string) string {
 		return helpBots
 	case "stores":
 		return helpStores
+	case "ai":
+		return helpAI
 	case "security":
 		return helpSecurity
 	default:
@@ -155,4 +157,14 @@ const helpSecurity = `Security model:
   - Version history — up to 10 previous versions per secret
   - VALET_KEY env var for bots — no key files in CI`
 
-const helpFull = helpSetup + "\n\n" + helpSecrets + "\n\n" + helpRunning + "\n\n" + helpEnvironments + "\n\n" + helpUsers + "\n\n" + helpBots + "\n\n" + helpStores + "\n\n" + helpSecurity
+const helpAI = `AI tool integration:
+
+  valet mcp install                                    # register with Claude Code, Cursor, etc.
+  valet mcp install --claude-code                      # Claude Code only
+  valet mcp install --cursor                           # Cursor only
+
+Once installed, AI tools get structured access to Valet via MCP tools
+(valet_status, valet_wallet_search, valet_require, valet_help).
+All other commands can be run via the terminal.`
+
+const helpFull = helpSetup + "\n\n" + helpSecrets + "\n\n" + helpRunning + "\n\n" + helpEnvironments + "\n\n" + helpUsers + "\n\n" + helpBots + "\n\n" + helpStores + "\n\n" + helpAI + "\n\n" + helpSecurity

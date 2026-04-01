@@ -271,7 +271,7 @@ func requireHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 
 var helpTool = mcp.NewTool("valet_help",
 	mcp.WithDescription("Get the full Valet CLI reference. Use this to discover commands for operations not covered by the other tools (team management, exports, CI/CD setup, environments, scopes, etc). All commands are run via the terminal."),
-	mcp.WithString("topic", mcp.Description("Optional topic: setup, secrets, running, environments, users, bots, stores, security, or leave empty for full reference")),
+	mcp.WithString("topic", mcp.Description("Optional topic: setup, secrets, running, environments, users, bots, stores, ai, security, or leave empty for full reference")),
 )
 
 func helpHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
