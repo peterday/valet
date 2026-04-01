@@ -588,20 +588,32 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		return errResult("searching stores: %v", err)
 	}
 
+	// Look up provider info for this key (used in both found and not-found paths).
+	p := provider.FindByEnvVar(key)
+
 	if len(matches) == 0 {
-		// Check provider registry for setup guidance.
-		msg := fmt.Sprintf("%s not found in any personal store.\n\n", key)
-		p := provider.FindByEnvVar(key)
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s not found in any personal store.\n\n", key)
 		if p != nil {
-			msg += fmt.Sprintf("This is a %s key. ", p.DisplayName)
+			fmt.Fprintf(&b, "This is a %s key.\n", p.DisplayName)
+			fmt.Fprintf(&b, "Get one at: %s\n", p.SetupURL)
 			if p.FreeTier != "" {
-				msg += fmt.Sprintf("Free tier: %s. ", p.FreeTier)
+				fmt.Fprintf(&b, "Free tier: %s\n", p.FreeTier)
 			}
-			msg += fmt.Sprintf("Get one at: %s\n\n", p.SetupURL)
+			fmt.Fprintf(&b, "\n")
 		}
-		msg += fmt.Sprintf("Ask the user to type: ! valet secret set %s\n", key)
-		msg += "Do NOT pass the secret via --value or through your context — the ! prefix runs it interactively."
-		return mcp.NewToolResultText(msg), nil
+		fmt.Fprintf(&b, "Present this to the user:\n")
+		if p != nil {
+			fmt.Fprintf(&b, "  \"You need a %s API key. ", p.DisplayName)
+			if p.FreeTier != "" {
+				fmt.Fprintf(&b, "They offer %s. ", p.FreeTier)
+			}
+			fmt.Fprintf(&b, "Get one at %s, then type `! valet secret set %s` to save it.\"\n", p.SetupURL, key)
+		} else {
+			fmt.Fprintf(&b, "  \"Type `! valet secret set %s` to enter the value.\"\n", key)
+		}
+		fmt.Fprintf(&b, "\nDo NOT pass the secret via --value or through your context.")
+		return mcp.NewToolResultText(b.String()), nil
 	}
 
 	var b strings.Builder
@@ -609,19 +621,36 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	for _, m := range matches {
 		fmt.Fprintf(&b, "  • %s (scope: %s)\n", m.StoreName, m.ScopePath)
 	}
+
+	fmt.Fprintf(&b, "\nPresent these options to the user:\n")
+
+	// Option: link/copy from wallet.
 	if len(matches) == 1 {
 		m := matches[0]
-		fmt.Fprintf(&b, "\nAsk the user: should I link the store %q (all its keys become available, auto-updates) or copy just %s (project-owned copy)?\n\n", m.StoreName, key)
-		fmt.Fprintf(&b, "Based on their choice:\n")
-		fmt.Fprintf(&b, "  Link: call valet_link with store=%q\n", m.StoreName)
-		fmt.Fprintf(&b, "  Copy: call valet_copy with key=%q from=%q\n", key, m.StoreName)
+		fmt.Fprintf(&b, "  1. Link store %q — all its keys become available, auto-updates on rotation\n", m.StoreName)
+		fmt.Fprintf(&b, "     → call valet_link with store=%q\n", m.StoreName)
+		fmt.Fprintf(&b, "  2. Copy just this key — project owns its own copy\n")
+		fmt.Fprintf(&b, "     → call valet_copy with key=%q from=%q\n", key, m.StoreName)
 	} else {
-		fmt.Fprintf(&b, "\nAsk the user which store to use and whether to link or copy:\n")
-		for _, m := range matches {
-			fmt.Fprintf(&b, "  Link %s: call valet_link with store=%q\n", m.StoreName, m.StoreName)
-			fmt.Fprintf(&b, "  Copy from %s: call valet_copy with key=%q from=%q\n", m.StoreName, key, m.StoreName)
+		for i, m := range matches {
+			fmt.Fprintf(&b, "  %d. Use from %s (link or copy)\n", i+1, m.StoreName)
+			fmt.Fprintf(&b, "     Link → valet_link store=%q\n", m.StoreName)
+			fmt.Fprintf(&b, "     Copy → valet_copy key=%q from=%q\n", key, m.StoreName)
 		}
 	}
+
+	// Option: create a new key.
+	if p != nil {
+		fmt.Fprintf(&b, "  %d. Create a new key at %s", len(matches)+1, p.SetupURL)
+		if p.FreeTier != "" {
+			fmt.Fprintf(&b, " (%s)", p.FreeTier)
+		}
+		fmt.Fprintf(&b, "\n     → ask user to type: ! valet secret set %s\n", key)
+	} else {
+		fmt.Fprintf(&b, "  %d. Enter a new value manually\n", len(matches)+1)
+		fmt.Fprintf(&b, "     → ask user to type: ! valet secret set %s\n", key)
+	}
+
 	return mcp.NewToolResultText(b.String()), nil
 }
 
