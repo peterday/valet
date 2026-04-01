@@ -85,6 +85,12 @@ Remote (git-backed) store — name is inferred from the URL:
 			if err := s.SetRemote(uri.Remote); err != nil {
 				return fmt.Errorf("setting remote: %w", err)
 			}
+
+			// Create the GitHub repo and push.
+			if err := s.CreateRemoteAndPush(uri.Remote); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+				fmt.Println("Push manually when the repo exists: valet push -s " + uri.StoreName)
+			}
 		}
 
 		fmt.Printf("Created store %q", uri.StoreName)
@@ -143,8 +149,52 @@ var storeListCmd = &cobra.Command{
 	},
 }
 
+var storeDeleteForceFlag bool
+
+var storeDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete a local store",
+	Long: `Delete a store from ~/.valet/stores/. This removes all secrets in the store.
+
+  valet store delete my-keys
+  valet store delete my-keys --force     # skip confirmation`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+
+		storePath := filepath.Join(cfg.StoresDir, name)
+		if _, err := os.Stat(filepath.Join(storePath, "store.json")); os.IsNotExist(err) {
+			return fmt.Errorf("store %q not found", name)
+		}
+
+		if !storeDeleteForceFlag {
+			fmt.Printf("Delete store %q and all its secrets? This cannot be undone. [y/N]: ", name)
+			var answer string
+			fmt.Scanln(&answer)
+			if answer != "y" && answer != "Y" && answer != "yes" {
+				fmt.Println("Cancelled.")
+				return nil
+			}
+		}
+
+		if err := os.RemoveAll(storePath); err != nil {
+			return fmt.Errorf("deleting store: %w", err)
+		}
+
+		fmt.Printf("Deleted store %q\n", name)
+		return nil
+	},
+}
+
 func init() {
+	storeDeleteCmd.Flags().BoolVar(&storeDeleteForceFlag, "force", false, "skip confirmation")
 	storeCmd.AddCommand(storeCreateCmd)
 	storeCmd.AddCommand(storeListCmd)
+	storeCmd.AddCommand(storeDeleteCmd)
 	rootCmd.AddCommand(storeCmd)
 }

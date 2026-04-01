@@ -44,13 +44,28 @@ func (s *Store) Push(message string) error {
 		return nil
 	}
 
-	// Try push. If it fails, pull-merge-push.
-	if err := s.gitExecQuiet("push"); err != nil {
+	// Try push. First attempt may need to set upstream.
+	if err := s.gitExecQuiet("push", "-u", "origin", s.currentBranch()); err != nil {
+		// Check if this is a "remote not found" vs "remote has changes" error.
+		out, _ := s.gitOutput("remote", "get-url", "origin")
+		remote := strings.TrimSpace(out)
+
+		// Try to create the repo if it looks like a GitHub remote and gh is available.
+		if strings.Contains(remote, "github.com") {
+			if created := s.tryCreateGitHubRepo(remote); created {
+				// Retry push after creating repo.
+				if err := s.gitExec("push", "-u", "origin", s.currentBranch()); err != nil {
+					return fmt.Errorf("git push: %w", err)
+				}
+				return nil
+			}
+		}
+
+		// Otherwise assume remote has changes — pull and merge.
 		fmt.Println("Remote has changes, pulling and merging...")
 		if err := s.pullAndMerge(); err != nil {
 			return err
 		}
-		// Retry push.
 		if err := s.gitExec("push"); err != nil {
 			return fmt.Errorf("git push (retry): %w", err)
 		}
@@ -293,6 +308,60 @@ func (s *Store) currentBranch() string {
 		return "main"
 	}
 	return strings.TrimSpace(out)
+}
+
+// CreateRemoteAndPush creates the remote GitHub repo (if github) and does the initial push.
+func (s *Store) CreateRemoteAndPush(remote string) error {
+	if strings.Contains(remote, "github.com") {
+		if !s.tryCreateGitHubRepo(remote) {
+			return fmt.Errorf("could not create GitHub repo")
+		}
+	}
+
+	// Initial commit + push.
+	if err := s.gitExec("add", "-A"); err != nil {
+		return fmt.Errorf("git add: %w", err)
+	}
+	if err := s.gitExec("commit", "-m", "valet: initialize store"); err != nil {
+		return fmt.Errorf("git commit: %w", err)
+	}
+	if err := s.gitExec("push", "-u", "origin", s.currentBranch()); err != nil {
+		return fmt.Errorf("git push: %w", err)
+	}
+	return nil
+}
+
+// tryCreateGitHubRepo attempts to create a GitHub repo using the gh CLI.
+// Returns true if the repo was created successfully.
+func (s *Store) tryCreateGitHubRepo(remote string) bool {
+	// Extract org/repo from git@github.com:org/repo.git or https://github.com/org/repo.git
+	repo := remote
+	repo = strings.TrimPrefix(repo, "git@github.com:")
+	repo = strings.TrimPrefix(repo, "https://github.com/")
+	repo = strings.TrimSuffix(repo, ".git")
+
+	if repo == "" || !strings.Contains(repo, "/") {
+		return false
+	}
+
+	// Check if gh is available.
+	if _, err := exec.LookPath("gh"); err != nil {
+		fmt.Fprintf(os.Stderr, "GitHub repo doesn't exist. Install gh CLI to auto-create, or create it manually:\n")
+		fmt.Fprintf(os.Stderr, "  gh repo create %s --private\n", repo)
+		return false
+	}
+
+	fmt.Printf("Creating GitHub repo %s...\n", repo)
+	cmd := exec.Command("gh", "repo", "create", repo, "--private", "--confirm")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create repo. Create it manually:\n")
+		fmt.Fprintf(os.Stderr, "  gh repo create %s --private\n", repo)
+		return false
+	}
+
+	return true
 }
 
 func (s *Store) gitExec(args ...string) error {
