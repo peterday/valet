@@ -1,0 +1,71 @@
+# Valet
+
+> Encrypted API key and secrets management for developers and teams.
+
+Valet encrypts secrets with age, stores them in git-safe `.valet/` directories, and injects them at runtime. No plaintext `.env` files, no cloud dependencies.
+
+## Core workflow
+
+```
+valet init                                  # create encrypted store
+valet secret set OPENAI_API_KEY             # prompts for value
+valet require OPENAI_API_KEY --provider openai  # declare dependency
+valet require --provider stripe             # declare all keys from a provider
+valet drive -- npm start                    # run with secrets injected
+```
+
+## Key commands
+
+- `valet secret set KEY` — store a secret (prompts interactively for value)
+- `valet secret set KEY --value val` — store with explicit value
+- `valet secret set KEY --local` — local override (gitignored, highest priority)
+- `valet secret set KEY -e '*'` — wildcard, applies to all environments
+- `valet secret list` — list secrets in current environment
+- `valet secret copy KEY --from store` — copy a key from another store
+- `valet require KEY --provider X` — declare a single requirement
+- `valet require --provider stripe` — declare all keys from a provider
+- `valet require --provider X --optional` — declare as optional
+- `valet status` — show required vs available secrets
+- `valet setup` — interactive setup for missing secrets
+- `valet resolve` — show all resolved secrets and their sources
+- `valet resolve --show` — reveal actual values
+- `valet drive -- command` — run with secrets injected (alias: `valet run`)
+- `valet drive --set KEY=VALUE -- command` — run with ephemeral override
+- `valet sync .env` — export to dotenv file
+- `valet link store-name` — link a personal store (gitignored)
+- `valet link store-name --shared` — link a team store (committed)
+- `valet providers update` — fetch provider registry
+- `valet providers list` — list known providers
+
+## Important rules
+
+- Never store secrets in `.env` files, source code, or environment variables directly.
+- Use `valet secret set KEY` (no --value) to prompt the user — this keeps secrets out of shell history.
+- Use `valet drive -- command` or `valet run -- command` to inject secrets at runtime.
+- Use `valet require` to declare dependencies so teammates know what's needed.
+- The `.valet/` directory is safe to commit (values are encrypted). The `.valet.local/` directory is gitignored.
+
+## Resolution order (highest priority first)
+
+1. `--set` overrides (command line, ephemeral)
+2. `.valet.local/{env}` (local developer overrides)
+3. `.valet.local/*` (local wildcard)
+4. `.valet/{env}` (shared project values)
+5. `.valet/*` (shared project wildcard)
+6. Linked stores `/{env}` (team/personal)
+7. Linked stores `/*` (team/personal wildcard)
+
+## Project files
+
+- `.valet.toml` — project config, requirements, store links (committed)
+- `.valet/` — encrypted secret store (committed, values encrypted)
+- `.valet.local.toml` — personal store links (gitignored)
+- `.valet.local/` — local developer overrides (gitignored)
+
+## Providers
+
+Providers (OpenAI, Anthropic, Stripe, Supabase, Fly.io, Exa, ElevenLabs) are matched by env var name. Multi-key providers like Stripe and Supabase can be declared with `valet require --provider stripe`.
+
+## MCP integration
+
+If Valet's MCP server is installed (`valet mcp install`), use the `valet_status`, `valet_wallet_search`, `valet_require`, and `valet_help` tools instead of the CLI. The MCP server never exposes secret values.
