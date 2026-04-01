@@ -314,23 +314,33 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 		fmt.Fprintf(&b, "  %s (%d keys): %s\n", f.Name, len(f.Keys), strings.Join(f.Keys, ", "))
 	}
 
-	// Match against providers.
-	fmt.Fprintf(&b, "\nProvider matches:\n")
-	providerMatches := 0
+	// Group keys by provider.
+	providerKeys := make(map[string][]string)   // provider name → keys
+	providerInfo := make(map[string]*provider.Provider)
+	var unmatchedKeys []string
+
 	for key := range allKeys {
 		p := provider.FindByEnvVar(key)
 		if p != nil {
-			fmt.Fprintf(&b, "  %-28s → %s\n", key, p.DisplayName)
-			providerMatches++
+			providerKeys[p.Name] = append(providerKeys[p.Name], key)
+			providerInfo[p.Name] = p
+		} else {
+			unmatchedKeys = append(unmatchedKeys, key)
 		}
 	}
-	if providerMatches == 0 {
-		fmt.Fprintf(&b, "  (none matched known providers)\n")
+
+	if len(providerKeys) > 0 {
+		fmt.Fprintf(&b, "\nProvider matches:\n")
+		for name, keys := range providerKeys {
+			p := providerInfo[name]
+			fmt.Fprintf(&b, "  %s: %s\n", p.DisplayName, strings.Join(keys, ", "))
+		}
 	}
 
 	// Search wallet for each key.
 	id, err := identity.Load()
 	walletMatches := make(map[string][]string) // key → store names
+	storesUsed := make(map[string]bool)
 	if err == nil {
 		for key := range allKeys {
 			matches, err := store.SearchStoresForSecret(key, "dev", id)
@@ -339,37 +349,28 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 			}
 			for _, m := range matches {
 				walletMatches[key] = append(walletMatches[key], m.StoreName)
+				storesUsed[m.StoreName] = true
 			}
 		}
 	}
 
 	if len(walletMatches) > 0 {
 		fmt.Fprintf(&b, "\nAlready in your wallet:\n")
-		storesUsed := make(map[string]bool)
 		for key, stores := range walletMatches {
 			fmt.Fprintf(&b, "  %-28s in %s\n", key, strings.Join(stores, ", "))
-			for _, s := range stores {
-				storesUsed[s] = true
-			}
 		}
-
-		// Recommend linking.
 		var storeNames []string
 		for s := range storesUsed {
 			storeNames = append(storeNames, s)
 		}
-		fmt.Fprintf(&b, "\nRecommendation:\n")
-		fmt.Fprintf(&b, "1. Ask the user: should I link your wallet (%s) or import everything from .env?\n", strings.Join(storeNames, ", "))
-		fmt.Fprintf(&b, "   - Link: call valet_link for each store — keys auto-update on rotation\n")
-		fmt.Fprintf(&b, "   - Import: ask user to type ! valet import .env — project owns copies\n")
-		fmt.Fprintf(&b, "   - Both: link wallet for keys already there, import .env for the rest\n")
-	} else {
-		fmt.Fprintf(&b, "\nNo matching keys found in wallet.\n\n")
-		fmt.Fprintf(&b, "Recommendation:\n")
+		fmt.Fprintf(&b, "\nAsk the user: should I link your wallet (%s) or import everything from .env?\n", strings.Join(storeNames, ", "))
+		fmt.Fprintf(&b, "  Link: call valet_link for each store — keys auto-update on rotation\n")
+		fmt.Fprintf(&b, "  Import: ask user to type ! valet import .env — project owns copies\n")
+		fmt.Fprintf(&b, "  Both: link wallet for keys already there, import .env for the rest\n")
 	}
 
 	// Import instructions for each .env file.
-	fmt.Fprintf(&b, "\nTo import secrets, ask the user to type:\n")
+	fmt.Fprintf(&b, "\nTo import, ask the user to type:\n")
 	for _, f := range found {
 		env := "dev"
 		if strings.Contains(f.Name, "production") || strings.Contains(f.Name, "prod") {
@@ -385,8 +386,17 @@ func scanHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 			fmt.Fprintf(&b, "  ! valet import %s -e %s\n", f.Name, env)
 		}
 	}
-	fmt.Fprintf(&b, "\nThen: call valet_require for each key to declare requirements.\n")
-	fmt.Fprintf(&b, "After import, .env files can be deleted (secrets are now encrypted in .valet/).")
+
+	// Declare requirements — give Claude exact tool calls.
+	fmt.Fprintf(&b, "\nTo declare requirements, call valet_require:\n")
+	for name := range providerKeys {
+		fmt.Fprintf(&b, "  valet_require provider=%q    (declares all %s env vars)\n", name, providerInfo[name].DisplayName)
+	}
+	for _, key := range unmatchedKeys {
+		fmt.Fprintf(&b, "  valet_require key=%q\n", key)
+	}
+
+	fmt.Fprintf(&b, "\nAfter import, .env files can be deleted (secrets are now encrypted in .valet/).")
 
 	return mcp.NewToolResultText(b.String()), nil
 }
@@ -748,14 +758,16 @@ func copyHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 // --- valet_require: declare a dependency ---
 
 var requireTool = mcp.NewTool("valet_require",
-	mcp.WithDescription(`Declare that this project needs a secret. Adds a requirement to .valet.toml without storing any values. Call this when:
-- You write code that imports an API client (openai, stripe, supabase, etc.)
-- The project needs a new environment variable for an external service
-- You want to declare all keys from a provider at once (omit 'key', just provide 'provider')
+	mcp.WithDescription(`Declare that this project needs a secret. Adds a requirement to .valet.toml without storing any values.
 
-Use valet_provider_search first if you're not sure which provider or env var name to use.`),
-	mcp.WithString("key", mcp.Description("Secret name (e.g. OPENAI_API_KEY). Omit to declare all keys from the provider")),
-	mcp.WithString("provider", mcp.Description("Provider name (e.g. openai, stripe, supabase). Use valet_provider_search to discover providers")),
+IMPORTANT: When you know the provider name, use provider-only mode (omit 'key'). This declares ALL env vars the provider needs in one call. Only use 'key' for non-provider secrets like DATABASE_URL or custom env vars.
+
+Examples:
+- provider="openai" → declares OPENAI_API_KEY
+- provider="stripe" → declares STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET
+- key="DATABASE_URL" description="Postgres connection string" → single custom key`),
+	mcp.WithString("key", mcp.Description("Secret name for non-provider keys (e.g. DATABASE_URL). OMIT this when using provider — let the provider define the key names")),
+	mcp.WithString("provider", mcp.Description("Provider name — declares ALL its env vars automatically. Preferred over specifying key manually")),
 	mcp.WithString("description", mcp.Description("Human-readable description of what this secret is for")),
 	mcp.WithBoolean("optional", mcp.Description("Whether this secret is optional (default: false)")),
 )
