@@ -85,47 +85,49 @@ echo "valet v${LATEST} installed to ${INSTALL_DIR}/${BINARY}"
 # --- Add to PATH if needed ---
 
 if ! echo "$PATH" | grep -q "${INSTALL_DIR}"; then
-  echo ""
-  echo "Add valet to your PATH by adding this to your shell profile:"
-  echo ""
-
   SHELL_NAME="$(basename "$SHELL")"
+  PATH_LINE='export PATH="$HOME/.valet/bin:$PATH"'
+
   case "$SHELL_NAME" in
-    zsh)
-      PROFILE="~/.zshrc"
-      ;;
+    zsh)  PROFILE="${HOME}/.zshrc" ;;
     bash)
       if [ -f "${HOME}/.bash_profile" ]; then
-        PROFILE="~/.bash_profile"
+        PROFILE="${HOME}/.bash_profile"
       else
-        PROFILE="~/.bashrc"
+        PROFILE="${HOME}/.bashrc"
       fi
       ;;
     fish)
-      PROFILE="~/.config/fish/config.fish"
-      echo "  set -gx PATH ${INSTALL_DIR} \$PATH"
-      echo ""
-      echo "Then restart your shell or run: source ${PROFILE}"
-      echo ""
-      echo "Get started:"
-      echo "  valet identity init"
-      echo "  cd your-project && valet init"
-      exit 0
+      PROFILE="${HOME}/.config/fish/config.fish"
+      PATH_LINE="set -gx PATH ${INSTALL_DIR} \$PATH"
       ;;
-    *)
-      PROFILE="your shell profile"
-      ;;
+    *)    PROFILE="" ;;
   esac
 
-  echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
-  echo ""
-  echo "Add to ${PROFILE}:"
-  echo "  echo 'export PATH=\"\$HOME/.valet/bin:\$PATH\"' >> ${PROFILE}"
-  echo ""
-  echo "Then restart your shell or run: source ${PROFILE}"
-else
-  echo ""
-  echo "Get started:"
-  echo "  valet identity init"
-  echo "  cd your-project && valet init"
+  if [ -n "$PROFILE" ]; then
+    # Check if already in the profile.
+    if ! grep -q '.valet/bin' "$PROFILE" 2>/dev/null; then
+      printf "Add valet to your PATH in %s? [Y/n] " "$(basename "$PROFILE")"
+      read -r ANSWER
+      case "$ANSWER" in
+        n|N|no|No) ;;
+        *)
+          echo "" >> "$PROFILE"
+          echo "# valet" >> "$PROFILE"
+          echo "$PATH_LINE" >> "$PROFILE"
+          echo "Added to $(basename "$PROFILE"). Restart your shell or run:"
+          echo "  source $PROFILE"
+          ;;
+      esac
+    fi
+  else
+    echo ""
+    echo "Add to your shell profile:"
+    echo "  $PATH_LINE"
+  fi
 fi
+
+echo ""
+echo "Get started:"
+echo "  valet identity init"
+echo "  cd your-project && valet init"
