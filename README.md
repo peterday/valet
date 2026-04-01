@@ -123,13 +123,27 @@ valet init --local my-keys
 
 Now `valet drive` and `valet sync` pull from both your personal store and the project's embedded store. Nothing is copied — your keys stay in `my-keys`, and the link is in `.valet.local.toml` (gitignored, so teammates don't see it).
 
-### Copy keys into the project store (self-contained)
+### Copy a single key into the project store
+
+```bash
+valet secret copy STRIPE_KEY --from my-keys
+```
+
+Copies one secret into the embedded store. The project owns its own copy — self-contained, shareable with the team via git. Use this for project-specific keys.
+
+### Copy all keys into the project store (self-contained)
 
 ```bash
 valet secret sync --to .
 ```
 
-This copies all resolved secrets into the embedded store. The project becomes self-contained — no personal store link needed. Good for when the project should have its own copy of the keys.
+Copies all resolved secrets into the embedded store. The project becomes self-contained — no personal store link needed.
+
+### When to link vs copy
+
+**Link** — key stays in the source store, resolves at runtime. If you rotate the key in your personal store, every linked project gets the update. Best for personal dev keys you reuse everywhere (OpenAI, Anthropic, etc.).
+
+**Copy** — value is re-encrypted into the project's store. Self-contained, shareable with teammates via git. If the source key rotates, you must re-copy. Best for project-specific keys (this app's Stripe account, database URLs).
 
 ### Copy keys into a team store (share with team)
 
@@ -426,7 +440,8 @@ valet secret get KEY                                   # get value
 valet secret list                                      # list in current env
 valet secret history KEY                               # version history
 valet secret remove KEY --scope path                   # remove
-valet secret sync --to <store>                         # promote secrets between stores
+valet secret copy KEY --from <store>                   # copy one secret into this project
+valet secret sync --to <store>                         # copy all resolved secrets into a store
 ```
 
 ### Running & Exporting

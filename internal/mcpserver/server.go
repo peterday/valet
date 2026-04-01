@@ -173,10 +173,14 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	}
 	if len(matches) == 1 {
 		m := matches[0]
-		fmt.Fprintf(&b, "\nTo use this key, run 'valet setup' in the terminal — it will offer to link the store '%s'.\n", m.StoreName)
-		fmt.Fprintf(&b, "Alternatively, run 'valet link %s' to link the entire store (all its keys become available).", m.StoreName)
+		fmt.Fprintf(&b, "\nOptions:\n")
+		fmt.Fprintf(&b, "  • Run 'valet setup' in the terminal — searches wallet, lets user choose\n")
+		fmt.Fprintf(&b, "  • Run 'valet link %s' to link the entire store (all its keys become available)\n", m.StoreName)
+		fmt.Fprintf(&b, "  • Run 'valet secret copy %s --from %s' to copy just this key (project-owned copy)\n", key, m.StoreName)
+		fmt.Fprintf(&b, "\nLink keeps the key in the source store (auto-updates on rotation).\nCopy makes the project self-contained (must re-copy on rotation).")
 	} else {
-		fmt.Fprintf(&b, "\nFound in multiple stores. Run 'valet setup' in the terminal — it will show the options and let the user choose which to use.")
+		fmt.Fprintf(&b, "\nFound in multiple stores. Run 'valet setup' in the terminal — it will show the options and let the user choose.\n")
+		fmt.Fprintf(&b, "Or copy a specific one: 'valet secret copy %s --from <store-name>'", key)
 	}
 	return mcp.NewToolResultText(b.String()), nil
 }

@@ -350,15 +350,86 @@ func resolveProjectForStore(s *store.Store) (string, error) {
 	return projects[0].Slug, nil
 }
 
+var secretCopyFromFlag string
+
+var secretCopyCmd = &cobra.Command{
+	Use:   "copy <KEY>",
+	Short: "Copy a single secret from another store into this project",
+	Long: `Copy a specific secret from a personal or team store into the current
+project's embedded store. The value is re-encrypted for the project's recipients.
+
+Use this when you want the project to own its own copy of the secret (self-contained).
+Use 'valet link' instead if you want the secret to stay in the source store and
+resolve at runtime (auto-updates when rotated, but requires the link).
+
+  valet secret copy STRIPE_KEY --from my-keys
+  valet secret copy DATABASE_URL --from acme-secrets -e prod`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		key := args[0]
+		if secretCopyFromFlag == "" {
+			return fmt.Errorf("--from is required (source store name)")
+		}
+
+		env := "dev"
+		if envFlag != "" {
+			env = envFlag
+		}
+
+		id, err := loadIdentity()
+		if err != nil {
+			return err
+		}
+
+		// Open source store and get the secret.
+		source, err := store.FindStoreByName(secretCopyFromFlag, id)
+		if err != nil {
+			return err
+		}
+		sourceProject, err := resolveProjectForStore(source)
+		if err != nil {
+			return fmt.Errorf("source store: %w", err)
+		}
+		secret, scopePath, err := source.GetSecretFromEnv(sourceProject, env, key)
+		if err != nil {
+			return fmt.Errorf("%s not found in %s (%s environment)", key, secretCopyFromFlag, env)
+		}
+
+		// Open target (embedded/primary) store and write.
+		target, err := openStore()
+		if err != nil {
+			return err
+		}
+		targetProject, err := resolveProject(target)
+		if err != nil {
+			return err
+		}
+
+		targetScope := env + "/default"
+		if scopeFlag != "" {
+			targetScope = scopeFlag
+		}
+
+		if err := target.SetSecret(targetProject, targetScope, key, secret.Value); err != nil {
+			return err
+		}
+
+		fmt.Printf("Copied %s from %s/%s into %s\n", key, secretCopyFromFlag, scopePath, targetScope)
+		return nil
+	},
+}
+
 func init() {
 	secretSetCmd.Flags().StringVar(&secretValueFlag, "value", "", "secret value (prompted if not provided)")
 	secretSetCmd.Flags().StringVar(&secretProviderFlag, "provider", "", "provider name (e.g. openai, stripe, aws)")
 	secretSyncCmd.Flags().StringVar(&secretSyncToFlag, "to", "", "target store name")
+	secretCopyCmd.Flags().StringVar(&secretCopyFromFlag, "from", "", "source store name")
 	secretCmd.AddCommand(secretSetCmd)
 	secretCmd.AddCommand(secretGetCmd)
 	secretCmd.AddCommand(secretListCmd)
 	secretCmd.AddCommand(secretRemoveCmd)
 	secretCmd.AddCommand(secretHistoryCmd)
 	secretCmd.AddCommand(secretSyncCmd)
+	secretCmd.AddCommand(secretCopyCmd)
 	rootCmd.AddCommand(secretCmd)
 }

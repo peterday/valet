@@ -46,10 +46,26 @@ const helpSecrets = `Secret commands:
   valet secret list                                    # list in current env
   valet secret history KEY                             # version history
   valet secret remove KEY --scope path                 # remove
-  valet secret sync --to <store>                       # promote secrets between stores
+  valet secret copy KEY --from <store>                 # copy one secret into this project
+  valet secret sync --to <store>                       # copy all resolved secrets into a store
 
 Important: valet secret set without --value prompts the user interactively.
-Use this to let the user enter sensitive values without exposing them.`
+Use this to let the user enter sensitive values without exposing them.
+
+Link vs Copy:
+  Link (valet link <store>):
+    - Project references the store; secrets resolve at runtime
+    - Key stays in one place; updates propagate automatically
+    - Links the entire store (all its keys become available)
+    - Personal links are gitignored (.valet.local.toml)
+    - Best for: personal dev keys, shared team keys
+
+  Copy (valet secret copy KEY --from <store>):
+    - Copies the value into the project's embedded store
+    - Project is self-contained; no external dependency
+    - Must manually re-copy if the source key is rotated
+    - Committed (encrypted); teammates get it via git pull
+    - Best for: project-specific keys, CI/CD, sharing with team`
 
 const helpRunning = `Running and exporting:
 
