@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	filippo.io/age v1.3.1
+	github.com/mark3labs/mcp-go v0.32.0
 	github.com/pelletier/go-toml/v2 v2.3.0
 	github.com/spf13/cobra v1.10.2
 )

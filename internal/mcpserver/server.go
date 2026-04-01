@@ -1,0 +1,427 @@
+package mcpserver
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/peterday/valet/internal/config"
+	"github.com/peterday/valet/internal/domain"
+	"github.com/peterday/valet/internal/identity"
+	"github.com/peterday/valet/internal/store"
+)
+
+// Serve starts the MCP server over stdio.
+func Serve(version string) error {
+	s := server.NewMCPServer(
+		"valet",
+		version,
+		server.WithToolCapabilities(true),
+	)
+
+	s.AddTool(statusTool, statusHandler)
+	s.AddTool(secretListTool, secretListHandler)
+	s.AddTool(walletSearchTool, walletSearchHandler)
+	s.AddTool(projectInfoTool, projectInfoHandler)
+	s.AddTool(envListTool, envListHandler)
+	s.AddTool(requireTool, requireHandler)
+	s.AddTool(helpTool, helpHandler)
+
+	return server.ServeStdio(s)
+}
+
+// --- Discovery tools (read-only, no secret values) ---
+
+var statusTool = mcp.NewTool("valet_status",
+	mcp.WithDescription("Show project status: required secrets vs what's available. Reports which are set, missing, or optional. Never returns secret values."),
+	mcp.WithString("env", mcp.Description("Environment to check (default: dev)")),
+)
+
+func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	env := stringArg(req, "env", "dev")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errResult("cannot get working directory: %v", err)
+	}
+
+	tomlPath, err := config.FindValetToml(cwd)
+	if err != nil {
+		return errResult("no .valet.toml found — run 'valet init' first")
+	}
+
+	vc, err := config.LoadValetToml(tomlPath)
+	if err != nil {
+		return errResult("reading config: %v", err)
+	}
+
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found — run 'valet identity init' first")
+	}
+
+	stores, err := openAllProjectStores(id)
+	if err != nil {
+		return errResult("opening stores: %v", err)
+	}
+
+	resolved, err := store.ResolveAllSecrets(stores, env)
+	if err != nil {
+		return errResult("resolving secrets: %v", err)
+	}
+
+	if len(vc.Requires) == 0 {
+		return mcp.NewToolResultText("No requirements declared in .valet.toml.\nDeclare what this project needs with: valet require <KEY> --provider <provider>"), nil
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Project: %s | Environment: %s\n\n", vc.Project, env)
+
+	missing := 0
+	for name, req := range vc.Requires {
+		if rs, found := resolved[name]; found {
+			fmt.Fprintf(&b, "  ✓ %-30s (from %s/%s)\n", name, rs.StoreName, rs.ScopePath)
+		} else if req.Optional {
+			fmt.Fprintf(&b, "  - %-30s (optional, not set)\n", name)
+		} else {
+			fmt.Fprintf(&b, "  ✗ %-30s MISSING\n", name)
+			missing++
+		}
+	}
+
+	if missing > 0 {
+		fmt.Fprintf(&b, "\n%d required secret(s) missing. Use valet_secret_set to store them, or run 'valet setup' in the terminal for interactive setup.", missing)
+	}
+
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+var secretListTool = mcp.NewTool("valet_secret_list",
+	mcp.WithDescription("List secret names in the current project environment. Returns names and scopes only — never values."),
+	mcp.WithString("env", mcp.Description("Environment to list (default: dev)")),
+)
+
+func secretListHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	env := stringArg(req, "env", "dev")
+
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found — run 'valet identity init' first")
+	}
+
+	s, err := store.Resolve(id)
+	if err != nil {
+		return errResult("opening store: %v", err)
+	}
+
+	project, err := s.ResolveDefaultProject()
+	if err != nil {
+		return errResult("no project found: %v", err)
+	}
+
+	secrets, err := s.ListSecretsInEnv(project, env)
+	if err != nil {
+		return errResult("listing secrets: %v", err)
+	}
+
+	if len(secrets) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("No secrets in %s environment.", env)), nil
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Secrets in %s:\n", env)
+	for name, scope := range secrets {
+		fmt.Fprintf(&b, "  %-30s %s\n", name, scope)
+	}
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+var walletSearchTool = mcp.NewTool("valet_wallet_search",
+	mcp.WithDescription("Search the user's personal stores (wallet) for a secret by name. Use this to check if the user already has an API key before asking them to enter it. Never returns secret values — only reports which stores have the key."),
+	mcp.WithString("key", mcp.Required(), mcp.Description("Secret name to search for (e.g. OPENAI_API_KEY)")),
+	mcp.WithString("env", mcp.Description("Environment to search (default: dev)")),
+)
+
+func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	key := req.Params.Arguments["key"].(string)
+	env := stringArg(req, "env", "dev")
+
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found — run 'valet identity init' first")
+	}
+
+	matches, err := store.SearchStoresForSecret(key, env, id)
+	if err != nil {
+		return errResult("searching stores: %v", err)
+	}
+
+	if len(matches) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("%s not found in any personal store. The user will need to provide it via 'valet secret set %s'.", key, key)), nil
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s found in %d store(s):\n", key, len(matches))
+	for _, m := range matches {
+		fmt.Fprintf(&b, "  • %s (scope: %s)\n", m.StoreName, m.ScopePath)
+	}
+	fmt.Fprintf(&b, "\nThe user can link this store to the project with 'valet link <store-name>' or run 'valet setup' to configure interactively.")
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+var projectInfoTool = mcp.NewTool("valet_project_info",
+	mcp.WithDescription("Get project configuration: store type, linked stores, environments, and team members. Useful for understanding the project's secrets setup."),
+)
+
+func projectInfoHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errResult("cannot get working directory: %v", err)
+	}
+
+	tomlPath, err := config.FindValetToml(cwd)
+	if err != nil {
+		return errResult("no .valet.toml found — this project hasn't been initialized with Valet. Run 'valet init' to set up secrets management.")
+	}
+
+	vc, err := config.LoadValetToml(tomlPath)
+	if err != nil {
+		return errResult("reading config: %v", err)
+	}
+
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found: %v", err)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Project: %s\n", vc.Project)
+	fmt.Fprintf(&b, "Store: %s\n", vc.Store)
+	fmt.Fprintf(&b, "Default environment: %s\n", vc.DefaultEnv)
+
+	if len(vc.Stores) > 0 {
+		fmt.Fprintf(&b, "Linked shared stores: %s\n", strings.Join(vc.Stores, ", "))
+	}
+
+	// Load local config for personal store links.
+	tomlDir := filepath.Dir(tomlPath)
+	lc, _ := config.LoadLocalConfig(tomlDir)
+	if len(lc.Stores) > 0 {
+		fmt.Fprintf(&b, "Linked personal stores: %s\n", strings.Join(lc.Stores, ", "))
+	}
+
+	// List environments.
+	s, err := store.Resolve(id)
+	if err == nil {
+		project, err := s.ResolveDefaultProject()
+		if err == nil {
+			envs, err := s.ListEnvironments(project)
+			if err == nil && len(envs) > 0 {
+				fmt.Fprintf(&b, "Environments: %s\n", strings.Join(envs, ", "))
+			}
+
+			users, err := s.ListUsers()
+			if err == nil && len(users) > 0 {
+				fmt.Fprintf(&b, "\nTeam members:\n")
+				for _, u := range users {
+					fmt.Fprintf(&b, "  • %s", u.Name)
+					if u.GitHub != "" {
+						fmt.Fprintf(&b, " (@%s)", u.GitHub)
+					}
+					fmt.Fprintf(&b, "\n")
+				}
+			}
+		}
+	}
+
+	// Show requirements.
+	if len(vc.Requires) > 0 {
+		fmt.Fprintf(&b, "\nDeclared requirements:\n")
+		for name, req := range vc.Requires {
+			label := name
+			if req.Provider != "" {
+				label += fmt.Sprintf(" [%s]", req.Provider)
+			}
+			if req.Optional {
+				label += " (optional)"
+			}
+			if req.Description != "" {
+				label += fmt.Sprintf(" — %s", req.Description)
+			}
+			fmt.Fprintf(&b, "  • %s\n", label)
+		}
+	}
+
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+var envListTool = mcp.NewTool("valet_env_list",
+	mcp.WithDescription("List environments in the current project (e.g. dev, staging, prod) and what secrets each contains. Never returns secret values."),
+)
+
+func envListHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found: %v", err)
+	}
+
+	s, err := store.Resolve(id)
+	if err != nil {
+		return errResult("opening store: %v", err)
+	}
+
+	project, err := s.ResolveDefaultProject()
+	if err != nil {
+		return errResult("no project found: %v", err)
+	}
+
+	envs, err := s.ListEnvironments(project)
+	if err != nil {
+		return errResult("listing environments: %v", err)
+	}
+
+	if len(envs) == 0 {
+		return mcp.NewToolResultText("No environments. Create one with: valet env create dev"), nil
+	}
+
+	var b strings.Builder
+	for _, env := range envs {
+		secrets, _ := s.ListSecretsInEnv(project, env)
+		fmt.Fprintf(&b, "%s (%d secrets)\n", env, len(secrets))
+		for name, scope := range secrets {
+			fmt.Fprintf(&b, "  %-30s %s\n", name, scope)
+		}
+		b.WriteString("\n")
+	}
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+// --- Action tools ---
+
+var requireTool = mcp.NewTool("valet_require",
+	mcp.WithDescription("Declare that this project needs a secret. Adds a requirement to .valet.toml without storing any values. Use this when writing code that depends on an API key or secret."),
+	mcp.WithString("key", mcp.Required(), mcp.Description("Secret name (e.g. OPENAI_API_KEY, DATABASE_URL)")),
+	mcp.WithString("provider", mcp.Description("Provider name (e.g. openai, stripe, aws)")),
+	mcp.WithString("description", mcp.Description("Human-readable description of what this secret is for")),
+	mcp.WithBoolean("optional", mcp.Description("Whether this secret is optional (default: false)")),
+)
+
+func requireHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	key := req.Params.Arguments["key"].(string)
+	provider := stringArg(req, "provider", "")
+	description := stringArg(req, "description", "")
+	optional := boolArg(req, "optional", false)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errResult("cannot get working directory: %v", err)
+	}
+
+	tomlPath, err := config.FindValetToml(cwd)
+	if err != nil {
+		return errResult("no .valet.toml found — run 'valet init' first")
+	}
+
+	vc, err := config.LoadValetToml(tomlPath)
+	if err != nil {
+		return errResult("reading config: %v", err)
+	}
+
+	if vc.Requires == nil {
+		vc.Requires = make(map[string]domain.Requirement)
+	}
+
+	r := domain.Requirement{
+		Provider:    provider,
+		Description: description,
+		Optional:    optional,
+	}
+
+	// Merge with existing.
+	if existing, ok := vc.Requires[key]; ok {
+		if r.Provider == "" {
+			r.Provider = existing.Provider
+		}
+		if r.Description == "" {
+			r.Description = existing.Description
+		}
+		if !r.Optional {
+			r.Optional = existing.Optional
+		}
+	}
+
+	vc.Requires[key] = r
+
+	if err := config.WriteValetToml(tomlPath, vc); err != nil {
+		return errResult("writing config: %v", err)
+	}
+
+	msg := fmt.Sprintf("Added requirement: %s", key)
+	if provider != "" {
+		msg += fmt.Sprintf(" [%s]", provider)
+	}
+	msg += "\n\nNext: check if the user already has this key with valet_wallet_search, then use 'valet secret set' or 'valet setup' in the terminal to store the value."
+	return mcp.NewToolResultText(msg), nil
+}
+
+// --- Help tool ---
+
+var helpTool = mcp.NewTool("valet_help",
+	mcp.WithDescription("Get the full Valet CLI reference. Use this to discover commands for operations not covered by the other tools (team management, exports, CI/CD setup, environments, scopes, etc)."),
+	mcp.WithString("topic", mcp.Description("Optional topic: setup, secrets, running, environments, users, bots, stores, security, or leave empty for full reference")),
+)
+
+func helpHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	topic := stringArg(req, "topic", "")
+	return mcp.NewToolResultText(helpText(topic)), nil
+}
+
+// --- Helpers ---
+
+func stringArg(req mcp.CallToolRequest, name, defaultVal string) string {
+	if v, ok := req.Params.Arguments[name].(string); ok && v != "" {
+		return v
+	}
+	return defaultVal
+}
+
+func boolArg(req mcp.CallToolRequest, name string, defaultVal bool) bool {
+	if v, ok := req.Params.Arguments[name].(bool); ok {
+		return v
+	}
+	return defaultVal
+}
+
+func errResult(format string, args ...any) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultError(fmt.Sprintf(format, args...)), nil
+}
+
+func openAllProjectStores(id *identity.Identity) ([]*store.Store, error) {
+	primary, err := store.Resolve(id)
+	if err != nil {
+		return nil, err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return []*store.Store{primary}, nil
+	}
+
+	tomlPath, err := config.FindValetToml(cwd)
+	if err != nil {
+		return []*store.Store{primary}, nil
+	}
+
+	vc, err := config.LoadValetToml(tomlPath)
+	if err != nil {
+		return []*store.Store{primary}, nil
+	}
+
+	lc, _ := config.LoadLocalConfig(filepath.Dir(tomlPath))
+
+	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, id), nil
+}
