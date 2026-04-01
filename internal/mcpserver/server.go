@@ -147,16 +147,147 @@ func initHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", initMsg)
+
+	// Auto-run scan to detect .env files.
+	scanResult := runScan(cwd)
+	if scanResult != "" {
+		fmt.Fprintf(&b, "\n%s\n", scanResult)
+	}
+
 	fmt.Fprintf(&b, "\n---\n\n")
 	fmt.Fprintf(&b, "Add this to the project's CLAUDE.md (create if it doesn't exist):\n\n")
 	fmt.Fprintf(&b, "```markdown\n%s```\n\n", snippet)
-	fmt.Fprintf(&b, "Next steps:\n")
-	fmt.Fprintf(&b, "1. Write the CLAUDE.md snippet above to the project\n")
-	fmt.Fprintf(&b, "2. Call valet_scan to detect existing .env files and match against wallet/providers\n")
-	fmt.Fprintf(&b, "3. Based on scan results, link wallet and/or ask user to type: ! valet import .env\n")
-	fmt.Fprintf(&b, "4. Call valet_require for each key to declare requirements")
+
+	if scanResult == "" {
+		fmt.Fprintf(&b, "Next steps:\n")
+		fmt.Fprintf(&b, "1. Write the CLAUDE.md snippet above to the project\n")
+		fmt.Fprintf(&b, "2. Use valet_provider_search to discover what API keys the project needs\n")
+		fmt.Fprintf(&b, "3. Use valet_require with provider name to declare requirements\n")
+		fmt.Fprintf(&b, "4. Use valet_wallet_search to check if user already has the keys")
+	} else {
+		fmt.Fprintf(&b, "Next steps:\n")
+		fmt.Fprintf(&b, "1. Write the CLAUDE.md snippet above to the project\n")
+		fmt.Fprintf(&b, "2. Follow the import/link/require instructions from the scan above")
+	}
 
 	return mcp.NewToolResultText(b.String()), nil
+}
+
+// runScan performs the .env scan logic and returns the formatted result (or "" if no .env files).
+func runScan(cwd string) string {
+	envFilePaths := findEnvFiles(cwd)
+
+	type envFileInfo struct {
+		Name string
+		Keys []string
+	}
+	var found []envFileInfo
+	allKeys := make(map[string]string)
+
+	for _, relPath := range envFilePaths {
+		absPath := filepath.Join(cwd, relPath)
+		keys, err := scanEnvFileKeys(absPath)
+		if err != nil || len(keys) == 0 {
+			continue
+		}
+		found = append(found, envFileInfo{Name: relPath, Keys: keys})
+		for _, k := range keys {
+			if _, exists := allKeys[k]; !exists {
+				allKeys[k] = relPath
+			}
+		}
+	}
+
+	if len(found) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Found %d .env file(s) with %d key(s):\n", len(found), len(allKeys))
+	for _, f := range found {
+		fmt.Fprintf(&b, "  %s: %s\n", f.Name, strings.Join(f.Keys, ", "))
+	}
+
+	// Group by provider.
+	providerKeys := make(map[string][]string)
+	providerInfo := make(map[string]*provider.Provider)
+	var unmatchedKeys []string
+	for key := range allKeys {
+		p := provider.FindByEnvVar(key)
+		if p != nil {
+			providerKeys[p.Name] = append(providerKeys[p.Name], key)
+			providerInfo[p.Name] = p
+		} else {
+			unmatchedKeys = append(unmatchedKeys, key)
+		}
+	}
+
+	if len(providerKeys) > 0 {
+		fmt.Fprintf(&b, "\nProvider matches:\n")
+		for name, keys := range providerKeys {
+			fmt.Fprintf(&b, "  %s: %s\n", providerInfo[name].DisplayName, strings.Join(keys, ", "))
+		}
+	}
+
+	// Wallet search.
+	id, err := identity.Load()
+	storesUsed := make(map[string]bool)
+	if err == nil {
+		var walletLines []string
+		for key := range allKeys {
+			matches, err := store.SearchStoresForSecret(key, "dev", id)
+			if err != nil || len(matches) == 0 {
+				continue
+			}
+			for _, m := range matches {
+				walletLines = append(walletLines, fmt.Sprintf("  %-28s in %s", key, m.StoreName))
+				storesUsed[m.StoreName] = true
+			}
+		}
+		if len(walletLines) > 0 {
+			fmt.Fprintf(&b, "\nAlready in wallet:\n")
+			for _, line := range walletLines {
+				fmt.Fprintf(&b, "%s\n", line)
+			}
+			var storeNames []string
+			for s := range storesUsed {
+				storeNames = append(storeNames, s)
+			}
+			fmt.Fprintf(&b, "\nAsk the user: link wallet (%s) for these keys, or import from .env?\n", strings.Join(storeNames, ", "))
+			fmt.Fprintf(&b, "  Link: call valet_link for each store\n")
+			fmt.Fprintf(&b, "  Import: see import commands below\n")
+		}
+	}
+
+	// Import commands.
+	fmt.Fprintf(&b, "\nTo import from .env, ask the user to type:\n")
+	for _, f := range found {
+		env := "dev"
+		if strings.Contains(f.Name, "production") || strings.Contains(f.Name, "prod") {
+			env = "prod"
+		} else if strings.Contains(f.Name, "staging") {
+			env = "staging"
+		} else if strings.Contains(f.Name, "test") {
+			env = "test"
+		}
+		if env == "dev" {
+			fmt.Fprintf(&b, "  ! valet import %s\n", f.Name)
+		} else {
+			fmt.Fprintf(&b, "  ! valet import %s -e %s\n", f.Name, env)
+		}
+	}
+
+	// Require commands.
+	fmt.Fprintf(&b, "\nThen declare requirements — call valet_require:\n")
+	for name := range providerKeys {
+		fmt.Fprintf(&b, "  valet_require provider=%q\n", name)
+	}
+	for _, key := range unmatchedKeys {
+		fmt.Fprintf(&b, "  valet_require key=%q\n", key)
+	}
+
+	fmt.Fprintf(&b, "\nAfter import, .env files can be deleted.")
+	return b.String()
 }
 
 func initOptionsHandler(cwd string) (*mcp.CallToolResult, error) {
