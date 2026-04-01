@@ -352,7 +352,7 @@ func (s *Store) tryCreateGitHubRepo(remote string) bool {
 	}
 
 	fmt.Printf("Creating GitHub repo %s...\n", repo)
-	cmd := exec.Command("gh", "repo", "create", repo, "--private", "--confirm")
+	cmd := exec.Command("gh", "repo", "create", repo, "--private")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
