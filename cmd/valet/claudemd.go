@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -141,9 +142,34 @@ func writeClaudeMDSnippet(dir string, hint projectHint) (bool, error) {
 	return true, os.WriteFile(claudePath, []byte(snippet), 0644)
 }
 
-// printClaudeMDHint tells the user what happened with CLAUDE.md.
-func printClaudeMDHint(created bool, dir string) {
-	if created {
-		fmt.Println("\nUpdated CLAUDE.md with valet instructions for AI tools.")
+// offerClaudeMD prompts the user to add valet instructions to CLAUDE.md.
+func offerClaudeMD(dir string, hint projectHint) {
+	claudePath := filepath.Join(dir, "CLAUDE.md")
+
+	// Check if CLAUDE.md already has valet instructions.
+	if existing, err := os.ReadFile(claudePath); err == nil {
+		if strings.Contains(string(existing), "valet") {
+			return
+		}
+	}
+
+	fmt.Print("\nAdd valet instructions to CLAUDE.md for AI tools? [Y/n]: ")
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+
+	if answer != "" && answer != "y" && answer != "yes" {
+		return
+	}
+
+	wrote, err := writeClaudeMDSnippet(dir, hint)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write CLAUDE.md: %v\n", err)
+		return
+	}
+	if wrote {
+		if _, err := os.Stat(claudePath); err == nil {
+			fmt.Println("Updated CLAUDE.md with valet instructions.")
+		}
 	}
 }
