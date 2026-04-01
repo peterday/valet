@@ -79,37 +79,66 @@ Unlinked stores with matching secrets are offered for linking.`,
 		set := 0
 		skipped := 0
 
-		for name, req := range vc.Requires {
-			// Check if already resolved from any linked store.
+		// Show already-resolved secrets first (no interaction needed).
+		hasResolved := false
+		for name := range vc.Requires {
 			if rs, found := resolved[name]; found {
-				fmt.Printf("  %-30s %s from %s\n", name, green("found"), rs.StoreName)
+				if !hasResolved {
+					fmt.Println("\nAlready configured:")
+					hasResolved = true
+				}
+				fmt.Printf("  %-30s ✓ from %s\n", name, rs.StoreName)
 				autoResolved++
-				continue
 			}
+		}
+
+		// Collect secrets that need attention.
+		type pendingSecret struct {
+			name string
+			req  domain.Requirement
+		}
+		var pending []pendingSecret
+		for name, req := range vc.Requires {
+			if _, found := resolved[name]; !found {
+				pending = append(pending, pendingSecret{name, req})
+			}
+		}
+
+		if len(pending) == 0 {
+			fmt.Println("\nAll secrets configured.")
+			return nil
+		}
+
+		fmt.Printf("\n%d secret(s) to configure:\n", len(pending))
+
+		for _, p := range pending {
+			name := p.name
+			req := p.req
+
+			fmt.Println() // blank line between secrets
 
 			// Search all local stores (not just linked ones) for this secret.
 			matches, _ := store.SearchStoresForSecret(name, env, id)
 			if len(matches) > 0 {
 				if len(matches) == 1 {
 					m := matches[0]
-					fmt.Printf("  %-30s found in %s. Link? [Y/n]: ", name, m.StoreName)
+					fmt.Printf("  %s — found in %s. Link? [Y/n] ", name, m.StoreName)
 					answer, _ := reader.ReadString('\n')
 					answer = strings.TrimSpace(strings.ToLower(answer))
 					if answer == "" || answer == "y" || answer == "yes" {
-						// Link the store.
 						lc, _ := config.LoadLocalConfig(tomlDir)
 						if !store.HasStoreLink(lc.Stores, m.StoreName) {
 							lc.Stores = append(lc.Stores, domain.StoreLink{Name: m.StoreName})
 							config.WriteLocalConfig(tomlDir, lc)
 							ensureInGitignore(tomlDir, config.ValetLocalToml)
-							fmt.Printf("    Linked %s\n", m.StoreName)
+							fmt.Printf("  ✓ Linked %s\n", m.StoreName)
 							linked++
 						}
 						autoResolved++
 						continue
 					}
 				} else {
-					fmt.Printf("  %-30s found in multiple stores:\n", name)
+					fmt.Printf("  %s — found in multiple stores:\n", name)
 					for i, m := range matches {
 						preview := m.Value
 						if len(preview) > 12 {
@@ -117,7 +146,7 @@ Unlinked stores with matching secrets are offered for linking.`,
 						}
 						fmt.Printf("    %d. %-20s %s\n", i+1, m.StoreName, preview)
 					}
-					fmt.Printf("  Choose [1-%d / enter value]: ", len(matches))
+					fmt.Printf("  Choose [1-%d / enter value] ", len(matches))
 					answer, _ := reader.ReadString('\n')
 					answer = strings.TrimSpace(answer)
 
@@ -128,7 +157,7 @@ Unlinked stores with matching secrets are offered for linking.`,
 							lc.Stores = append(lc.Stores, domain.StoreLink{Name: m.StoreName})
 							config.WriteLocalConfig(tomlDir, lc)
 							ensureInGitignore(tomlDir, config.ValetLocalToml)
-							fmt.Printf("    Linked %s\n", m.StoreName)
+							fmt.Printf("  ✓ Linked %s\n", m.StoreName)
 							linked++
 						}
 						autoResolved++
@@ -143,6 +172,7 @@ Unlinked stores with matching secrets are offered for linking.`,
 						if err := primary.SetSecret(project, scope, name, answer); err != nil {
 							return fmt.Errorf("setting %s: %w", name, err)
 						}
+						fmt.Printf("  ✓ Set\n")
 						set++
 						continue
 					}
@@ -155,29 +185,26 @@ Unlinked stores with matching secrets are offered for linking.`,
 				scope = env + "/" + req.Scope
 			}
 
-			label := name
-			if req.Description != "" {
-				label = fmt.Sprintf("%s (%s)", name, req.Description)
-			}
+			// Build prompt label.
+			fmt.Printf("  %s", name)
 			if req.Provider != "" {
-				label = fmt.Sprintf("%s [%s]", label, req.Provider)
+				fmt.Printf(" [%s]", req.Provider)
+			}
+			fmt.Println()
+			if req.Description != "" {
+				fmt.Printf("  %s\n", req.Description)
 			}
 
 			if req.Optional {
-				fmt.Printf("  %s (optional, enter to skip): ", label)
+				fmt.Printf("  Enter value (optional, enter to skip): ")
 			} else {
-				fmt.Printf("  %s: ", label)
+				fmt.Printf("  Enter value: ")
 			}
 
 			value, _ := reader.ReadString('\n')
 			value = strings.TrimSpace(value)
 
 			if value == "" {
-				if req.Optional {
-					skipped++
-					continue
-				}
-				fmt.Printf("    skipped (set later: valet secret set %s --scope %s)\n", name, scope)
 				skipped++
 				continue
 			}
@@ -191,10 +218,14 @@ Unlinked stores with matching secrets are offered for linking.`,
 					return fmt.Errorf("setting %s: %w", name, err)
 				}
 			}
+			fmt.Printf("  ✓ Set\n")
 			set++
 		}
 
-		fmt.Printf("\nDone. %d found, %d linked, %d set, %d skipped.\n", autoResolved, linked, set, skipped)
+		fmt.Printf("\nDone: %d configured, %d linked, %d set, %d skipped.\n", autoResolved, linked, set, skipped)
+		if skipped > 0 {
+			fmt.Println("Set skipped secrets later with: valet secret set <KEY>")
+		}
 		return nil
 	},
 }
