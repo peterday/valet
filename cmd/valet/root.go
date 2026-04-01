@@ -11,6 +11,9 @@ import (
 	"github.com/peterday/valet/internal/store"
 )
 
+// Set by -ldflags at build time.
+var version = "dev"
+
 var (
 	envFlag     string
 	scopeFlag   string
@@ -19,9 +22,10 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "valet",
-	Short: "API key management for developers and teams",
-	Long:  "Valet manages secrets in encrypted stores — locally, in git repos, or in the cloud.",
+	Use:     "valet",
+	Short:   "API key management for developers and teams",
+	Long:    "Valet manages secrets in encrypted stores — locally, in git repos, or in the cloud.",
+	Version: version,
 }
 
 func Execute() error {
