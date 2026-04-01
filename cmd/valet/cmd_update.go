@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -49,7 +49,9 @@ var updateCmd = &cobra.Command{
 			return nil
 		}
 
-		// Find where the current binary lives.
+		// Determine install location.
+		// Prefer updating in place if the current binary is user-writable.
+		// Otherwise install to ~/.valet/bin/.
 		binaryPath, err := os.Executable()
 		if err != nil {
 			return fmt.Errorf("finding current binary: %w", err)
@@ -59,6 +61,18 @@ var updateCmd = &cobra.Command{
 			return err
 		}
 
+		// If current binary isn't writable, use ~/.valet/bin/ instead.
+		if checkWritable(binaryPath) != nil {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			binaryPath = filepath.Join(home, ".valet", "bin", "valet")
+			if err := os.MkdirAll(filepath.Dir(binaryPath), 0755); err != nil {
+				return err
+			}
+		}
+
 		fmt.Printf("Downloading v%s...\n", latest)
 		newBinary, err := downloadAndExtract(downloadURL)
 		if err != nil {
@@ -66,26 +80,21 @@ var updateCmd = &cobra.Command{
 		}
 		defer os.Remove(newBinary)
 
-		// Try direct rename first, fall back to sudo mv.
-		installed := false
-		if checkWritable(binaryPath) == nil {
-			if err := os.Rename(newBinary, binaryPath); err == nil {
-				installed = true
-			}
+		// Copy instead of rename to handle cross-filesystem.
+		if err := copyFile(newBinary, binaryPath); err != nil {
+			return fmt.Errorf("install failed: %w", err)
 		}
-		if !installed {
-			fmt.Printf("Installing to %s (requires sudo)...\n", binaryPath)
-			if err := sudoMove(newBinary, binaryPath); err != nil {
-				return fmt.Errorf("install failed: %w", err)
-			}
+		os.Chmod(binaryPath, 0755)
+
+		fmt.Printf("Updated to v%s (%s)\n", latest, binaryPath)
+
+		// Check if the install location is in PATH.
+		installDir := filepath.Dir(binaryPath)
+		if !strings.Contains(os.Getenv("PATH"), installDir) {
+			fmt.Printf("\nNote: %s is not in your PATH.\n", installDir)
+			fmt.Printf("Add it: export PATH=\"%s:$PATH\"\n", installDir)
 		}
 
-		// chmod may also need sudo.
-		if err := os.Chmod(binaryPath, 0755); err != nil {
-			exec.Command("sudo", "chmod", "755", binaryPath).Run()
-		}
-
-		fmt.Printf("Updated to v%s\n", latest)
 		return nil
 	},
 }
@@ -119,7 +128,6 @@ func getLatestRelease(repo string) (version, downloadURL string, err error) {
 
 	ver := strings.TrimPrefix(release.TagName, "v")
 
-	// Find the right asset for this platform.
 	wantName := fmt.Sprintf("valet_%s_%s_%s.tar.gz", ver, runtime.GOOS, runtime.GOARCH)
 	for _, asset := range release.Assets {
 		if asset.Name == wantName {
@@ -178,10 +186,9 @@ func downloadAndExtract(url string) (string, error) {
 func resolveSymlink(path string) (string, error) {
 	resolved, err := os.Readlink(path)
 	if err != nil {
-		return path, nil // not a symlink
+		return path, nil
 	}
 	if !strings.HasPrefix(resolved, "/") {
-		// Relative symlink — resolve against the directory.
 		dir := path[:strings.LastIndex(path, "/")]
 		resolved = dir + "/" + resolved
 	}
@@ -197,12 +204,24 @@ func checkWritable(path string) error {
 	return nil
 }
 
-func sudoMove(src, dst string) error {
-	cmd := exec.Command("sudo", "mv", src, dst)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+// copyFile copies src to dst, handling cross-filesystem moves.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func init() {
