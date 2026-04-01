@@ -212,18 +212,26 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 // --- valet_require: declare a dependency ---
 
 var requireTool = mcp.NewTool("valet_require",
-	mcp.WithDescription("Declare that this project needs a secret. Adds a requirement to .valet.toml without storing any values. Use this when writing code that depends on an API key or secret."),
-	mcp.WithString("key", mcp.Required(), mcp.Description("Secret name (e.g. OPENAI_API_KEY, DATABASE_URL)")),
-	mcp.WithString("provider", mcp.Description("Provider name (e.g. openai, stripe, aws)")),
+	mcp.WithDescription(`Declare that this project needs a secret. Adds a requirement to .valet.toml without storing any values.
+
+Two modes:
+- Single key: provide 'key' to declare one secret
+- Provider: provide 'provider' without 'key' to declare all env vars from a provider (e.g. stripe declares STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET)`),
+	mcp.WithString("key", mcp.Description("Secret name (e.g. OPENAI_API_KEY). Omit to use all keys from --provider")),
+	mcp.WithString("provider", mcp.Description("Provider name (e.g. openai, stripe, supabase). If key is omitted, declares all env vars from this provider")),
 	mcp.WithString("description", mcp.Description("Human-readable description of what this secret is for")),
 	mcp.WithBoolean("optional", mcp.Description("Whether this secret is optional (default: false)")),
 )
 
 func requireHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	key := req.GetString("key", "")
-	provider := req.GetString("provider", "")
+	providerName := req.GetString("provider", "")
 	description := req.GetString("description", "")
 	optional := req.GetBool("optional", false)
+
+	if key == "" && providerName == "" {
+		return errResult("provide a 'key' or a 'provider' (or both)")
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -244,40 +252,67 @@ func requireHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		vc.Requires = make(map[string]domain.Requirement)
 	}
 
+	// Provider-only mode: declare all env vars from the provider.
+	if key == "" && providerName != "" {
+		p := provider.Get(providerName)
+		if p == nil {
+			return errResult("unknown provider %q — run 'valet providers update' then 'valet providers list'", providerName)
+		}
+		for _, ev := range p.EnvVars {
+			r := domain.Requirement{Provider: providerName, Optional: optional}
+			mergeRequirement(vc.Requires, ev.Name, r)
+		}
+		if err := config.WriteValetToml(tomlPath, vc); err != nil {
+			return errResult("writing config: %v", err)
+		}
+		var names []string
+		for _, ev := range p.EnvVars {
+			names = append(names, ev.Name)
+		}
+		msg := fmt.Sprintf("Added %d requirements from %s: %s", len(p.EnvVars), p.DisplayName, strings.Join(names, ", "))
+		msg += "\n\nNext steps:\n"
+		msg += "1. Use valet_wallet_search for each key to check if the user already has them\n"
+		msg += "2. Run 'valet setup' in the terminal to configure interactively"
+		return mcp.NewToolResultText(msg), nil
+	}
+
+	// Single key mode.
 	r := domain.Requirement{
-		Provider:    provider,
+		Provider:    providerName,
 		Description: description,
 		Optional:    optional,
 	}
-
-	// Merge with existing.
-	if existing, ok := vc.Requires[key]; ok {
-		if r.Provider == "" {
-			r.Provider = existing.Provider
-		}
-		if r.Description == "" {
-			r.Description = existing.Description
-		}
-		if !r.Optional {
-			r.Optional = existing.Optional
-		}
-	}
-
-	vc.Requires[key] = r
+	mergeRequirement(vc.Requires, key, r)
 
 	if err := config.WriteValetToml(tomlPath, vc); err != nil {
 		return errResult("writing config: %v", err)
 	}
 
 	msg := fmt.Sprintf("Added requirement: %s", key)
-	if provider != "" {
-		msg += fmt.Sprintf(" [%s]", provider)
+	if providerName != "" {
+		msg += fmt.Sprintf(" [%s]", providerName)
 	}
 	msg += "\n\nNext steps:\n"
 	msg += "1. Use valet_wallet_search to check if the user already has this key\n"
 	msg += "2. If found: run 'valet setup' in the terminal to let the user choose and link it\n"
 	msg += "3. If not found: run 'valet secret set " + key + "' in the terminal to prompt for the value"
 	return mcp.NewToolResultText(msg), nil
+}
+
+// mergeRequirement adds or updates a requirement, preserving existing fields.
+func mergeRequirement(requires map[string]domain.Requirement, key string, req domain.Requirement) {
+	if existing, ok := requires[key]; ok {
+		if req.Provider == "" {
+			req.Provider = existing.Provider
+		}
+		if req.Description == "" {
+			req.Description = existing.Description
+		}
+		if !req.Optional {
+			req.Optional = existing.Optional
+		}
+	}
+	requires[key] = req
 }
 
 // --- valet_help: full CLI reference ---

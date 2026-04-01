@@ -450,6 +450,14 @@ valet require DATABASE_URL --description "Postgres connection string"
 valet require SENTRY_DSN --optional
 ```
 
+For providers with multiple keys, declare them all at once:
+
+```bash
+valet require --provider stripe                        # STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET
+valet require --provider supabase                      # SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+valet require --provider supabase --optional           # all optional
+```
+
 ```toml
 default_env = 'dev'
 
@@ -461,6 +469,15 @@ description = 'Postgres connection string'
 
 [requires.SENTRY_DSN]
 optional = true
+
+[requires.STRIPE_SECRET_KEY]
+provider = 'stripe'
+
+[requires.STRIPE_PUBLISHABLE_KEY]
+provider = 'stripe'
+
+[requires.STRIPE_WEBHOOK_SECRET]
+provider = 'stripe'
 ```
 
 `valet status` shows what's resolved. `valet setup` fills in the gaps interactively.
@@ -561,7 +578,8 @@ valet init --local my-keys                             # link personal store
 valet init --shared github:acme/secrets --local my-keys  # both at once
 valet import .env                                      # import from .env file
 valet import .env -e prod --overwrite                  # import into prod, overwrite existing
-valet require KEY [--provider X] [--optional]          # declare a requirement
+valet require KEY [--provider X] [--optional]          # declare one requirement
+valet require --provider stripe                        # declare all keys from a provider
 valet setup                                            # interactive setup
 valet status                                           # show resolved/missing
 ```

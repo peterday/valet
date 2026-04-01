@@ -37,7 +37,8 @@ const helpSetup = `Setup commands:
   valet init --shared github:acme/secrets --local my-keys  # both at once
   valet import .env                                    # import from .env file
   valet import .env -e prod --overwrite                # import into prod, overwrite existing
-  valet require KEY [--provider X] [--optional]        # declare a requirement
+  valet require KEY [--provider X] [--optional]        # declare one requirement
+  valet require --provider stripe                      # declare all keys from a provider
   valet setup                                          # interactive setup for missing secrets
   valet status                                         # show required vs available`
 
