@@ -121,6 +121,8 @@ var storeListCmd = &cobra.Command{
 			return err
 		}
 
+		fmt.Printf("%-20s %-10s %s\n", "NAME", "TYPE", "REMOTE")
+		fmt.Printf("%-20s %-10s %s\n", "----", "----", "------")
 		for _, e := range entries {
 			if !e.IsDir() {
 				continue
@@ -131,7 +133,6 @@ var storeListCmd = &cobra.Command{
 				continue
 			}
 
-			// Try to read meta for type/remote info.
 			id, _ := loadIdentity()
 			if id != nil {
 				if s, err := store.Open(storePath, id); err == nil {
@@ -139,11 +140,11 @@ var storeListCmd = &cobra.Command{
 					if s.Meta.Remote != "" {
 						remote = s.Meta.Remote
 					}
-					fmt.Printf("%-20s %-8s %s\n", e.Name(), s.Meta.Type, remote)
+					fmt.Printf("%-20s %-10s %s\n", e.Name(), s.Meta.Type, remote)
 					continue
 				}
 			}
-			fmt.Println(e.Name())
+			fmt.Printf("%-20s %-10s %s\n", e.Name(), "?", "-")
 		}
 		return nil
 	},

@@ -60,8 +60,10 @@ var scopeListCmd = &cobra.Command{
 			fmt.Printf("No scopes in %s. Create one with: valet scope create %s/runtime\n", env, env)
 			return nil
 		}
+		fmt.Printf("%-30s  %-10s  %s\n", "SCOPE", "SECRETS", "RECIPIENTS")
+		fmt.Printf("%-30s  %-10s  %s\n", "-----", "-------", "----------")
 		for _, sc := range scopes {
-			fmt.Printf("%-30s  %d secret(s)  %d recipient(s)\n", sc.Path, len(sc.Secrets), len(sc.Recipients))
+			fmt.Printf("%-30s  %-10d  %d\n", sc.Path, len(sc.Secrets), len(sc.Recipients))
 		}
 		return nil
 	},

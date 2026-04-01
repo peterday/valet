@@ -85,17 +85,18 @@ var userListCmd = &cobra.Command{
 			return nil
 		}
 
+		fmt.Printf("%-15s  %-28s  %s\n", "NAME", "KEY", "GITHUB")
+		fmt.Printf("%-15s  %-28s  %s\n", "----", "---", "------")
 		for _, u := range users {
 			github := ""
 			if u.GitHub != "" {
-				github = fmt.Sprintf("  (github:%s)", u.GitHub)
+				github = u.GitHub
 			}
-			// Show first 20 chars of public key.
 			keyPreview := u.PublicKey
 			if len(keyPreview) > 24 {
 				keyPreview = keyPreview[:24] + "..."
 			}
-			fmt.Printf("%-15s  %s%s\n", u.Name, keyPreview, github)
+			fmt.Printf("%-15s  %-28s  %s\n", u.Name, keyPreview, github)
 		}
 		return nil
 	},

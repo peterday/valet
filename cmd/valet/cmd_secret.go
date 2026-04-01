@@ -151,6 +151,8 @@ var secretListCmd = &cobra.Command{
 			fmt.Printf("No secrets in %s\n", env)
 			return nil
 		}
+		fmt.Printf("%-30s  %s\n", "SECRET", "SCOPE")
+		fmt.Printf("%-30s  %s\n", "------", "-----")
 		for name, scope := range secrets {
 			fmt.Printf("%-30s  %s\n", name, scope)
 		}

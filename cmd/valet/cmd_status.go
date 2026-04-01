@@ -57,15 +57,17 @@ var statusCmd = &cobra.Command{
 		}
 
 		fmt.Printf("\nRequirements (%s):\n", env)
+		fmt.Printf("  %-30s %-30s %s\n", "SECRET", "SOURCE", "STATUS")
+		fmt.Printf("  %-30s %-30s %s\n", "------", "------", "------")
 
 		missing := 0
 		for name, req := range vc.Requires {
 			if rs, found := resolved[name]; found {
-				fmt.Printf("  %-30s %-20s %s\n", name, rs.StoreName+"/"+rs.ScopePath, green("ok"))
+				fmt.Printf("  %-30s %-30s %s\n", name, rs.StoreName+"/"+rs.ScopePath, green("ok"))
 			} else if req.Optional {
-				fmt.Printf("  %-30s %s\n", name, yellow("optional, not set"))
+				fmt.Printf("  %-30s %-30s %s\n", name, "-", yellow("optional"))
 			} else {
-				fmt.Printf("  %-30s %s\n", name, red("missing"))
+				fmt.Printf("  %-30s %-30s %s\n", name, "-", red("missing"))
 				missing++
 			}
 		}

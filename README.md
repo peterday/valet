@@ -19,40 +19,104 @@ valet drive -- uvicorn main:app --reload               # run with secrets inject
 
 Secrets are encrypted in `.valet/`, injected at runtime by `valet drive`, and `.valet.toml` is safe to commit. Need a `.env` file? `valet sync .env`.
 
-## Stores
+## Migrating from .env
 
-A store is where your encrypted secrets live. Start simple, scale up as needed.
-
-**Embedded** — `valet init` — secrets live in `.valet/` inside your project. Safe to commit. Best for solo devs and small teams.
-
-**Personal** — `valet store create my-keys` — a standalone store at `~/.valet/stores/` for keys you reuse across projects. Back it up to GitHub with a private repo:
+Already have a `.env` file? Import it in one command:
 
 ```bash
-valet store create github:pday/my-keys             # creates + links to private repo
-valet secret set OPENAI_API_KEY --value sk-abc -s my-keys
-valet push -s my-keys                              # backs up to GitHub
+valet identity init                                    # one time
+cd ~/code/my-api
+valet init                                             # creates encrypted store
+valet import .env                                      # imports all key=value pairs
+valet drive -- npm start                               # run with secrets injected
 ```
 
-Now your keys are encrypted on GitHub and sync across machines:
+Your secrets are now encrypted. You can delete the `.env` file or keep it for non-secret config. To go back to `.env` at any time: `valet sync .env`.
 
 ```bash
-# On another machine
+# Import into a specific environment
+valet import .env.production -e prod
+
+# Overwrite existing secrets
+valet import .env --overwrite
+
+# Import into a specific scope
+valet import .env --scope dev/runtime
+```
+
+Valet handles comments (`#`), quoted values (`"val"`), and `export` prefixes.
+
+## Stores
+
+A store is where your encrypted secrets live. Three types — start simple, scale up.
+
+### Embedded
+
+Secrets live in `.valet/` inside your project. Encrypted values are safe to commit. Best for solo devs and small teams.
+
+```bash
+cd ~/code/my-api
+valet init
+valet secret set OPENAI_API_KEY --value sk-abc123
+valet drive -- npm start
+```
+
+To share with a teammate, add them and push:
+
+```bash
+valet user add bob --github bob-smith
+valet env grant bob -e dev
+git add . && git commit -m "grant bob" && git push
+# Bob: git pull && valet drive -- npm start
+```
+
+### Personal
+
+A standalone store for keys you reuse across projects. Your OpenAI key, your AWS credentials — enter once, use everywhere.
+
+```bash
+valet store create my-keys
+valet secret set OPENAI_API_KEY --value sk-abc -s my-keys
+valet secret set ANTHROPIC_API_KEY --value sk-ant-xyz -s my-keys
+```
+
+Link to any project:
+
+```bash
+cd ~/code/my-api
+valet link my-keys
+valet drive -- npm start                           # OPENAI_API_KEY injected from my-keys
+```
+
+Back up to a private GitHub repo and sync across machines:
+
+```bash
+valet store create github:pday/my-keys             # creates repo + pushes
+# On another machine:
 valet join github:pday/my-keys                     # clones your personal store
 ```
 
-**Team** — `valet store create github:acme/api-secrets` — a standalone store backed by a git repo. The whole team shares it.
+### Team
+
+A standalone store backed by a git repo. The whole team shares it. Best for secrets used across multiple repos — monitoring keys, shared databases, third-party services.
 
 ```bash
-# Embedded (default)
-cd ~/code/my-api && valet init
-
-# Personal
-valet store create my-keys
-valet secret set OPENAI_API_KEY --value sk-abc -s my-keys
-
-# Team
+# Alice creates the store and adds secrets
 valet store create github:acme/api-secrets
+valet secret set DATADOG_API_KEY --value dd-key -s api-secrets
+
+# Alice adds Bob (fetches SSH key, invites to GitHub repo)
+valet user add bob --github bob-smith -s api-secrets
+valet env grant bob -e dev -s api-secrets
+valet push -s api-secrets
+
+# Bob joins and links to his project
+valet join github:acme/api-secrets
+cd ~/code/my-project && valet link api-secrets
+valet drive -- npm start
 ```
+
+See [Sharing with a Team](#sharing-with-a-team) for the full walkthrough.
 
 ## Environments
 
@@ -333,6 +397,8 @@ valet init                                             # embedded store (default
 valet init --shared github:acme/secrets/api            # link team store + project
 valet init --local my-keys                             # link personal store
 valet init --shared github:acme/secrets --local my-keys  # both at once
+valet import .env                                      # import from .env file
+valet import .env -e prod --overwrite                  # import into prod, overwrite existing
 valet require KEY [--provider X] [--optional]          # declare a requirement
 valet setup                                            # interactive setup
 valet status                                           # show resolved/missing

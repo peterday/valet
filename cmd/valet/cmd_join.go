@@ -318,6 +318,8 @@ var projectListCmd = &cobra.Command{
 			fmt.Println("No projects.")
 			return nil
 		}
+		fmt.Printf("%-20s  %s\n", "PROJECT", "CREATED")
+		fmt.Printf("%-20s  %s\n", "-------", "-------")
 		for _, p := range projects {
 			fmt.Printf("%-20s  %s\n", p.Slug, p.CreatedAt.Format("2006-01-02"))
 		}

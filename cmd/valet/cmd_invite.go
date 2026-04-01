@@ -91,6 +91,8 @@ var inviteListCmd = &cobra.Command{
 			return nil
 		}
 
+		fmt.Printf("%-10s  %-20s  %-8s  %-12s  %s\n", "ID", "ENVIRONMENTS", "USES", "EXPIRES", "STATUS")
+		fmt.Printf("%-10s  %-20s  %-8s  %-12s  %s\n", "--", "------------", "----", "-------", "------")
 		now := time.Now()
 		for _, inv := range invites {
 			status := "active"
@@ -100,7 +102,7 @@ var inviteListCmd = &cobra.Command{
 			if inv.MaxUses > 0 && inv.Uses >= inv.MaxUses {
 				status = "used"
 			}
-			fmt.Printf("%-10s  envs: %-20v  uses: %d/%d  expires: %s  [%s]\n",
+			fmt.Printf("%-10s  %-20v  %d/%-5d  %-12s  %s\n",
 				inv.ID,
 				inv.Environments,
 				inv.Uses, inv.MaxUses,
