@@ -1,203 +1,88 @@
 package provider
 
-// Provider describes an API key provider — where to sign up, what keys
-// it needs, how to validate them, and rotation characteristics.
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	toml "github.com/pelletier/go-toml/v2"
+)
+
+const (
+	// DefaultRegistry is the default provider registry repo.
+	DefaultRegistry = "https://github.com/peterday/valet-providers.git"
+	// DefaultRegistryName is the directory name for the default registry.
+	DefaultRegistryName = "default"
+)
+
+// Provider describes an API key provider.
 type Provider struct {
-	Name        string   // canonical name (e.g. "openai")
-	DisplayName string   // human-friendly (e.g. "OpenAI")
-	SetupURL    string   // shortest path to getting a key
-	EnvVars     []EnvVar // keys this provider declares
-	FreeTier    string   // short description ("1000 req/month" or "")
-	Validate    *ValidationEndpoint
-	Rotation    RotationInfo
-	MasterKey   *MasterKeyInfo // nil if not supported
+	Name        string      `toml:"name"`
+	DisplayName string      `toml:"display_name"`
+	SetupURL    string      `toml:"setup_url"`
+	FreeTier    string      `toml:"free_tier,omitempty"`
+	EnvVars     []EnvVar    `toml:"env_vars"`
+	Validate    *Validation `toml:"validate,omitempty"`
+	Rotation    Rotation    `toml:"rotation"`
+	MasterKey   *MasterKey  `toml:"master_key,omitempty"`
 }
 
 // EnvVar is a single environment variable declared by a provider.
 type EnvVar struct {
-	Name      string // e.g. "OPENAI_API_KEY"
-	Prefix    string // e.g. "sk-proj-" — for format validation
-	Sensitive bool   // if true, extra warnings (e.g. Supabase service_role)
+	Name      string `toml:"name"`
+	Prefix    string `toml:"prefix,omitempty"`
+	Sensitive bool   `toml:"sensitive,omitempty"`
 }
 
-// ValidationEndpoint describes how to test if a key works.
-type ValidationEndpoint struct {
-	Method    string // "GET" or "POST"
-	URL       string // endpoint URL (may contain {VAR} placeholders)
-	AuthStyle string // "bearer", "header:x-api-key", "basic"
-	CostsCredits bool // true if validation consumes credits (e.g. Anthropic)
+// Validation describes how to test if a key works.
+type Validation struct {
+	Method       string `toml:"method"`
+	URL          string `toml:"url"`
+	Auth         string `toml:"auth"`
+	CostsCredits bool   `toml:"costs_credits,omitempty"`
 }
 
-// RotationInfo describes how key rotation works for this provider.
-type RotationInfo struct {
-	Strategy     string // "create-then-revoke", "rolling", "nuclear", "manual"
-	Programmatic bool   // can be done via API
-	Warning      string // e.g. "Invalidates ALL existing keys immediately"
+// Rotation describes how key rotation works for this provider.
+type Rotation struct {
+	Strategy     string `toml:"strategy"`
+	Programmatic bool   `toml:"programmatic,omitempty"`
+	Warning      string `toml:"warning,omitempty"`
 }
 
-// MasterKeyInfo describes programmatic key creation from a master key.
-type MasterKeyInfo struct {
-	EnvVar string // the master key env var (e.g. "OPENAI_ADMIN_KEY")
-	Prefix string // expected prefix (e.g. "sk-admin-")
-	Note   string // how it works
+// MasterKey describes programmatic key creation from a master/admin key.
+type MasterKey struct {
+	EnvVar string `toml:"env_var"`
+	Prefix string `toml:"prefix,omitempty"`
+	Note   string `toml:"note,omitempty"`
 }
 
-// registry is the built-in provider database.
-var registry = map[string]*Provider{
-	"openai": {
-		Name:        "openai",
-		DisplayName: "OpenAI",
-		SetupURL:    "https://platform.openai.com/api-keys",
-		EnvVars: []EnvVar{
-			{Name: "OPENAI_API_KEY", Prefix: "sk-proj-"},
-		},
-		FreeTier: "",
-		Validate: &ValidationEndpoint{
-			Method:    "GET",
-			URL:       "https://api.openai.com/v1/models",
-			AuthStyle: "bearer",
-		},
-		Rotation: RotationInfo{
-			Strategy:     "create-then-revoke",
-			Programmatic: true,
-		},
-		MasterKey: &MasterKeyInfo{
-			EnvVar: "OPENAI_ADMIN_KEY",
-			Prefix: "sk-admin-",
-			Note:   "Org Owner admin key; creates project-scoped keys via service accounts",
-		},
-	},
-	"anthropic": {
-		Name:        "anthropic",
-		DisplayName: "Anthropic",
-		SetupURL:    "https://console.anthropic.com/settings/keys",
-		EnvVars: []EnvVar{
-			{Name: "ANTHROPIC_API_KEY", Prefix: "sk-ant-api03-"},
-		},
-		FreeTier: "$5 free credits",
-		Validate: &ValidationEndpoint{
-			Method:       "POST",
-			URL:          "https://api.anthropic.com/v1/messages",
-			AuthStyle:    "header:x-api-key",
-			CostsCredits: true,
-		},
-		Rotation: RotationInfo{
-			Strategy:     "create-then-revoke",
-			Programmatic: false,
-		},
-	},
-	"stripe": {
-		Name:        "stripe",
-		DisplayName: "Stripe",
-		SetupURL:    "https://dashboard.stripe.com/test/apikeys",
-		EnvVars: []EnvVar{
-			{Name: "STRIPE_SECRET_KEY", Prefix: "sk_test_"},
-			{Name: "STRIPE_PUBLISHABLE_KEY", Prefix: "pk_test_"},
-			{Name: "STRIPE_WEBHOOK_SECRET", Prefix: "whsec_"},
-		},
-		FreeTier: "Test mode is free, unlimited",
-		Validate: &ValidationEndpoint{
-			Method:    "GET",
-			URL:       "https://api.stripe.com/v1/balance",
-			AuthStyle: "basic",
-		},
-		Rotation: RotationInfo{
-			Strategy:     "rolling",
-			Programmatic: false,
-			Warning:      "Use Stripe's rolling key feature — old key stays valid during grace period (default 24h)",
-		},
-	},
-	"supabase": {
-		Name:        "supabase",
-		DisplayName: "Supabase",
-		SetupURL:    "https://supabase.com/dashboard/project/_/settings/api",
-		EnvVars: []EnvVar{
-			{Name: "SUPABASE_URL"},
-			{Name: "SUPABASE_ANON_KEY", Prefix: "eyJhbGci"},
-			{Name: "SUPABASE_SERVICE_ROLE_KEY", Prefix: "eyJhbGci", Sensitive: true},
-		},
-		FreeTier: "2 free projects, no card required",
-		Validate: &ValidationEndpoint{
-			Method:    "GET",
-			URL:       "{SUPABASE_URL}/rest/v1/",
-			AuthStyle: "header:apikey",
-		},
-		Rotation: RotationInfo{
-			Strategy:     "nuclear",
-			Programmatic: false,
-			Warning:      "Rotating the JWT secret invalidates ALL existing keys immediately",
-		},
-	},
-	"fly": {
-		Name:        "fly",
-		DisplayName: "Fly.io",
-		SetupURL:    "https://fly.io/user/personal_access_tokens",
-		EnvVars: []EnvVar{
-			{Name: "FLY_API_TOKEN", Prefix: "fo1_"},
-		},
-		FreeTier: "3 free VMs",
-		Validate: &ValidationEndpoint{
-			Method:    "GET",
-			URL:       "https://api.machines.dev/v1/apps",
-			AuthStyle: "bearer",
-		},
-		Rotation: RotationInfo{
-			Strategy:     "create-then-revoke",
-			Programmatic: true,
-		},
-		MasterKey: &MasterKeyInfo{
-			EnvVar: "FLY_API_TOKEN",
-			Prefix: "fo1_",
-			Note:   "Use 'flyctl tokens create' to generate scoped deploy tokens",
-		},
-	},
-	"exa": {
-		Name:        "exa",
-		DisplayName: "Exa",
-		SetupURL:    "https://dashboard.exa.ai/api-keys",
-		EnvVars: []EnvVar{
-			{Name: "EXA_API_KEY"},
-		},
-		FreeTier: "1000 requests/month",
-		Validate: &ValidationEndpoint{
-			Method:    "POST",
-			URL:       "https://api.exa.ai/search",
-			AuthStyle: "header:x-api-key",
-		},
-		Rotation: RotationInfo{
-			Strategy:     "manual",
-			Programmatic: false,
-		},
-	},
-	"elevenlabs": {
-		Name:        "elevenlabs",
-		DisplayName: "ElevenLabs",
-		SetupURL:    "https://elevenlabs.io/app/settings/api-keys",
-		EnvVars: []EnvVar{
-			{Name: "ELEVEN_LABS_API_KEY", Prefix: "sk_"},
-		},
-		FreeTier: "10,000 characters/month",
-		Validate: &ValidationEndpoint{
-			Method:    "GET",
-			URL:       "https://api.elevenlabs.io/v1/user",
-			AuthStyle: "header:xi-api-key",
-		},
-		Rotation: RotationInfo{
-			Strategy:     "manual",
-			Programmatic: false,
-		},
-	},
+// Registry loads and caches providers from TOML files on disk.
+type Registry struct {
+	mu        sync.Once
+	providers map[string]*Provider
+	dirs      []string // directories to scan (e.g. ~/.valet/providers/default/providers/)
+}
+
+// NewRegistry creates a registry that loads from the given base directory.
+// It scans all subdirectories (each is a registry/tap) for provider TOML files.
+func NewRegistry(baseDir string) *Registry {
+	return &Registry{
+		dirs: discoverRegistryDirs(baseDir),
+	}
 }
 
 // Get returns a provider by canonical name, or nil if not found.
-func Get(name string) *Provider {
-	return registry[name]
+func (r *Registry) Get(name string) *Provider {
+	r.load()
+	return r.providers[name]
 }
 
-// FindByEnvVar searches the registry for a provider that declares the
-// given environment variable name. Returns nil if no match.
-func FindByEnvVar(envVar string) *Provider {
-	for _, p := range registry {
+// FindByEnvVar searches for a provider that declares the given env var.
+func (r *Registry) FindByEnvVar(envVar string) *Provider {
+	r.load()
+	for _, p := range r.providers {
 		for _, ev := range p.EnvVars {
 			if ev.Name == envVar {
 				return p
@@ -207,18 +92,17 @@ func FindByEnvVar(envVar string) *Provider {
 	return nil
 }
 
-// All returns all registered providers.
-func All() map[string]*Provider {
-	return registry
+// All returns all loaded providers.
+func (r *Registry) All() map[string]*Provider {
+	r.load()
+	return r.providers
 }
 
-// CheckPrefix validates that a value matches the expected prefix for an
-// env var. Returns the provider name and expected prefix if there's a
-// mismatch, or empty strings if ok (or no prefix defined).
-func CheckPrefix(envVar, value string) (providerName, expectedPrefix string, ok bool) {
-	p := FindByEnvVar(envVar)
+// CheckPrefix validates that a value matches the expected prefix for an env var.
+func (r *Registry) CheckPrefix(envVar, value string) (providerName, expectedPrefix string, ok bool) {
+	p := r.FindByEnvVar(envVar)
 	if p == nil {
-		return "", "", true // no provider, no check
+		return "", "", true
 	}
 	for _, ev := range p.EnvVars {
 		if ev.Name == envVar && ev.Prefix != "" {
@@ -229,4 +113,108 @@ func CheckPrefix(envVar, value string) (providerName, expectedPrefix string, ok 
 		}
 	}
 	return "", "", true
+}
+
+// load reads all TOML files from registry directories. Called once.
+func (r *Registry) load() {
+	r.mu.Do(func() {
+		r.providers = make(map[string]*Provider)
+		for _, dir := range r.dirs {
+			r.loadDir(dir)
+		}
+	})
+}
+
+func (r *Registry) loadDir(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		p, err := loadProviderFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		r.providers[p.Name] = p
+	}
+}
+
+func loadProviderFile(path string) (*Provider, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var p Provider
+	if err := toml.Unmarshal(data, &p); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if p.Name == "" {
+		return nil, fmt.Errorf("%s: missing name", path)
+	}
+	return &p, nil
+}
+
+// discoverRegistryDirs finds all registry subdirectories under baseDir.
+// Each subdirectory is a registry (like a Homebrew tap).
+func discoverRegistryDirs(baseDir string) []string {
+	var dirs []string
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return dirs
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		// Each registry has a providers/ subdirectory with TOML files.
+		provDir := filepath.Join(baseDir, e.Name(), "providers")
+		if info, err := os.Stat(provDir); err == nil && info.IsDir() {
+			dirs = append(dirs, provDir)
+		}
+	}
+	return dirs
+}
+
+// ProvidersBaseDir returns ~/.valet/providers/.
+func ProvidersBaseDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".valet", "providers")
+}
+
+// DefaultRegistryDir returns ~/.valet/providers/default/.
+func DefaultRegistryDir() string {
+	return filepath.Join(ProvidersBaseDir(), DefaultRegistryName)
+}
+
+// --- Package-level convenience functions using a default registry ---
+
+var defaultRegistry *Registry
+var defaultOnce sync.Once
+
+func getDefault() *Registry {
+	defaultOnce.Do(func() {
+		defaultRegistry = NewRegistry(ProvidersBaseDir())
+	})
+	return defaultRegistry
+}
+
+// Get returns a provider by name from the default registry.
+func Get(name string) *Provider {
+	return getDefault().Get(name)
+}
+
+// FindByEnvVar searches the default registry for a provider by env var name.
+func FindByEnvVar(envVar string) *Provider {
+	return getDefault().FindByEnvVar(envVar)
+}
+
+// CheckPrefix validates key format using the default registry.
+func CheckPrefix(envVar, value string) (providerName, expectedPrefix string, ok bool) {
+	return getDefault().CheckPrefix(envVar, value)
 }
