@@ -102,7 +102,7 @@ func valetClaudeMDSnippet(hint projectHint) string {
 	b.WriteString("**Key rules:**\n")
 	b.WriteString("- Never write secrets or API keys to `.env` files, source code, or config files\n")
 	b.WriteString("- Use `valet secret set <NAME>` to store a secret (prompts the user for the value)\n")
-	b.WriteString("- Use `valet secret require <NAME> --provider <provider>` to declare a new secret dependency in `.valet.toml`\n")
+	b.WriteString("- Use `valet require <NAME> --provider <provider>` to declare a new secret dependency in `.valet.toml`\n")
 	b.WriteString("- Run the app with secrets injected: `" + driveExample + "`\n")
 	b.WriteString("\n")
 	b.WriteString("**Useful commands:**\n")

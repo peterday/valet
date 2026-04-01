@@ -22,9 +22,9 @@ var requireCmd = &cobra.Command{
 	Long: `Add a requirement to .valet.toml. This declares what the project needs
 without storing any values. Teammates see requirements when they run 'valet setup'.
 
-  valet secret require OPENAI_API_KEY --provider openai
-  valet secret require DATABASE_URL --description "Postgres connection string"
-  valet secret require SENTRY_DSN --optional`,
+  valet require OPENAI_API_KEY --provider openai
+  valet require DATABASE_URL --description "Postgres connection string"
+  valet require SENTRY_DSN --optional`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
@@ -94,5 +94,5 @@ func init() {
 	requireCmd.Flags().StringVar(&requireDescriptionFlag, "description", "", "human-readable description")
 	requireCmd.Flags().BoolVar(&requireOptionalFlag, "optional", false, "mark as optional")
 	requireCmd.Flags().StringVar(&requireScopeFlag, "scope", "", "default scope for this secret (e.g. db, runtime)")
-	secretCmd.AddCommand(requireCmd)
+	rootCmd.AddCommand(requireCmd)
 }

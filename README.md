@@ -379,9 +379,9 @@ Valet handles comments (`#`), quoted values (`"val"`), and `export` prefixes.
 `.valet.toml` declares what secrets a project needs. Committed to git — the contract.
 
 ```bash
-valet secret require OPENAI_API_KEY --provider openai
-valet secret require DATABASE_URL --description "Postgres connection string"
-valet secret require SENTRY_DSN --optional
+valet require OPENAI_API_KEY --provider openai
+valet require DATABASE_URL --description "Postgres connection string"
+valet require SENTRY_DSN --optional
 ```
 
 ```toml
@@ -411,7 +411,7 @@ valet init --local my-keys                             # link personal store
 valet init --shared github:acme/secrets --local my-keys  # both at once
 valet import .env                                      # import from .env file
 valet import .env -e prod --overwrite                  # import into prod, overwrite existing
-valet secret require KEY [--provider X] [--optional]          # declare a requirement
+valet require KEY [--provider X] [--optional]          # declare a requirement
 valet setup                                            # interactive setup
 valet status                                           # show resolved/missing
 ```
@@ -578,7 +578,7 @@ make test        # all tests
 - [x] `valet run` / `valet drive` — inject and run
 - [x] `valet sync` — 8 export formats
 - [x] `valet bot` — bot identities with `VALET_KEY`
-- [x] `valet secret require` + `valet setup` — project onboarding
+- [x] `valet require` + `valet setup` — project onboarding
 - [x] `valet secret sync --to` — promote between stores
 - [x] Provider metadata, version history, rotation flags
 - [x] GitHub SSH key import
