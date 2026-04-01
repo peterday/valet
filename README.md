@@ -745,6 +745,43 @@ name = "my-keys"
 - Version history — up to 10 previous versions per secret
 - `VALET_KEY` env var for bots — no key files in CI
 
+## AI Tool Integration (MCP)
+
+Valet includes a [Model Context Protocol](https://modelcontextprotocol.io/) server that lets AI coding tools (Claude Code, Cursor, etc.) manage secrets directly.
+
+### Setup
+
+```bash
+valet mcp install                                      # auto-detect and configure
+valet mcp install --claude-code                        # Claude Code only
+valet mcp install --cursor                             # Cursor only
+```
+
+This registers Valet as an MCP server. Start a new session to use it.
+
+### MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `valet_status` | Project config, environments, secrets, requirements — the "tell me everything" tool |
+| `valet_wallet_search` | Check if user already has a key in their personal stores |
+| `valet_require` | Declare secret dependencies. Supports `--provider` for batch declaration |
+| `valet_provider_search` | Discover providers by name, category, or use case |
+| `valet_help` | Full CLI reference (9 topics) |
+
+### Typical AI workflow
+
+1. **Discover** — `valet_provider_search` query="payments" → finds Stripe, PayPal, etc.
+2. **Require** — `valet_require` provider="stripe" → declares `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`
+3. **Find** — `valet_wallet_search` key="STRIPE_SECRET_KEY" → checks if user already has it
+4. **Setup** — suggest `valet setup` in terminal → interactive configuration
+
+### Design principles
+
+- **Never returns secret values** — tools return names, sources, and metadata only
+- **Read-only discovery** — status, search, and help tools are safe to call freely
+- **Action through terminal** — for operations that modify secrets, the AI suggests CLI commands for the user to run
+
 ## Development
 
 ```bash
@@ -772,6 +809,7 @@ make test        # all tests
 - [x] `valet store delete` — clean up local stores
 - [x] Provider registry — setup URLs, key validation, rotation guidance
 - [x] Store linking — key filtering, name mapping, environment mapping
+- [x] MCP server — AI tool integration (Claude Code, Cursor)
 - [ ] Provider automation — create/rotate keys via provider APIs (OpenAI, Fly.io)
 - [ ] Cloud-backed stores with audit logs
 - [ ] Kubernetes operator

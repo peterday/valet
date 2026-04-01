@@ -68,4 +68,12 @@ Providers (OpenAI, Anthropic, Stripe, Supabase, Fly.io, Exa, ElevenLabs) are mat
 
 ## MCP integration
 
-If Valet's MCP server is installed (`valet mcp install`), use the `valet_status`, `valet_wallet_search`, `valet_require`, and `valet_help` tools instead of the CLI. The MCP server never exposes secret values.
+If Valet's MCP server is installed (`valet mcp install`), these tools are available:
+
+- `valet_status` — project config, environments, secrets, requirements (the "tell me everything" tool)
+- `valet_wallet_search` — check if user already has a key in personal stores
+- `valet_require` — declare secret dependencies; use provider without key to declare all env vars from a provider (e.g. provider="stripe" declares 3 keys)
+- `valet_provider_search` — discover providers by name, category, use case, or keyword (e.g. "payments", "vector database", "email")
+- `valet_help` — full CLI reference
+
+MCP tools never expose secret values. For operations that modify secrets, suggest CLI commands for the user to run in the terminal.
