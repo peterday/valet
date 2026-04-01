@@ -248,6 +248,8 @@ MCP tools:
   valet_init               — initialize valet, generate CLAUDE.md snippet
   valet_status             — project config, environments, secrets, requirements
   valet_wallet_search      — check if user already has a key
+  valet_link               — link a store (all its keys become available)
+  valet_copy               — copy a single key from a store into the project
   valet_require            — declare secret dependencies (single key or entire provider)
   valet_provider_search    — discover providers by name, category, or use case
   valet_help               — full CLI reference
@@ -257,7 +259,8 @@ Workflow for AI tools:
   2. valet_provider_search to discover what keys are needed
   3. valet_require --provider <name> to declare all env vars
   4. valet_wallet_search to check if user has them
-  5. For missing keys, ask user to type: ! valet setup
+  5. If found: ask user link or copy, then valet_link or valet_copy
+  6. If not found, ask user to type: ! valet setup
 
 Important: never use --value flag or valet secret get — keep secrets out of AI context.
 Run commands with: valet run -- <command>`

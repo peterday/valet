@@ -29,6 +29,8 @@ func Serve(version string) error {
 	s.AddTool(initTool, initHandler)
 	s.AddTool(statusTool, statusHandler)
 	s.AddTool(walletSearchTool, walletSearchHandler)
+	s.AddTool(linkTool, linkHandler)
+	s.AddTool(copyTool, copyHandler)
 	s.AddTool(requireTool, requireHandler)
 	s.AddTool(providerSearchTool, providerSearchHandler)
 	s.AddTool(helpTool, helpHandler)
@@ -336,16 +338,148 @@ func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	}
 	if len(matches) == 1 {
 		m := matches[0]
-		fmt.Fprintf(&b, "\nAsk the user to type: ! valet setup\n")
-		fmt.Fprintf(&b, "This will search their wallet, find %s in %s, and let them link or copy it.\n\n", key, m.StoreName)
-		fmt.Fprintf(&b, "Or use these CLI commands directly:\n")
-		fmt.Fprintf(&b, "  valet link %s              — link the store (auto-updates on rotation)\n", m.StoreName)
-		fmt.Fprintf(&b, "  valet secret copy %s --from %s  — copy just this key\n", key, m.StoreName)
+		fmt.Fprintf(&b, "\nAsk the user: should I link the store %q (all its keys become available, auto-updates) or copy just %s (project-owned copy)?\n\n", m.StoreName, key)
+		fmt.Fprintf(&b, "Based on their choice:\n")
+		fmt.Fprintf(&b, "  Link: call valet_link with store=%q\n", m.StoreName)
+		fmt.Fprintf(&b, "  Copy: call valet_copy with key=%q from=%q\n", key, m.StoreName)
 	} else {
-		fmt.Fprintf(&b, "\nFound in multiple stores. Ask the user to type: ! valet setup\n")
-		fmt.Fprintf(&b, "It will show the options and let them choose.")
+		fmt.Fprintf(&b, "\nAsk the user which store to use and whether to link or copy:\n")
+		for _, m := range matches {
+			fmt.Fprintf(&b, "  Link %s: call valet_link with store=%q\n", m.StoreName, m.StoreName)
+			fmt.Fprintf(&b, "  Copy from %s: call valet_copy with key=%q from=%q\n", m.StoreName, key, m.StoreName)
+		}
 	}
 	return mcp.NewToolResultText(b.String()), nil
+}
+
+// --- valet_link: link a store to the project ---
+
+var linkTool = mcp.NewTool("valet_link",
+	mcp.WithDescription(`Link a personal or team store to this project. All secrets from the linked store become available via valet run. No secret values are exposed — this just creates a reference.
+
+Use this after valet_wallet_search finds a key in a store. Linking makes ALL keys from that store available (not just one). The link is gitignored by default (personal).
+
+Link vs copy:
+- Link: key stays in source store, auto-updates on rotation, links entire store
+- Copy (use valet_copy): project owns its own copy, self-contained, single key only`),
+	mcp.WithString("store", mcp.Required(), mcp.Description("Store name to link (e.g. my-keys, work-keys)")),
+	mcp.WithBoolean("shared", mcp.Description("If true, commits link to .valet.toml (team). Default: false (personal, gitignored)")),
+)
+
+func linkHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	storeName := req.GetString("store", "")
+	shared := req.GetBool("shared", false)
+
+	if storeName == "" {
+		return errResult("store name is required")
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errResult("cannot get working directory: %v", err)
+	}
+
+	tomlPath, err := config.FindValetToml(cwd)
+	if err != nil {
+		return errResult("no .valet.toml found — use valet_init first")
+	}
+	tomlDir := filepath.Dir(tomlPath)
+
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found — run 'valet identity init' first")
+	}
+
+	// Verify the store exists.
+	if _, err := store.FindStoreByName(storeName, id); err != nil {
+		return errResult("store %q not found — check store name with valet_wallet_search", storeName)
+	}
+
+	link := domain.StoreLink{Name: storeName}
+
+	if shared {
+		vc, err := config.LoadValetToml(tomlPath)
+		if err != nil {
+			return errResult("reading config: %v", err)
+		}
+		if store.HasStoreLink(vc.Stores, link.Name) {
+			return mcp.NewToolResultText(fmt.Sprintf("Store %q is already linked (shared).", link.Name)), nil
+		}
+		vc.Stores = append(vc.Stores, link)
+		if err := config.WriteValetToml(tomlPath, vc); err != nil {
+			return errResult("writing config: %v", err)
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Linked %q (shared, in .valet.toml). All its secrets are now available via `valet run -- <command>`.", link.Name)), nil
+	}
+
+	// Personal link (gitignored).
+	lc, _ := config.LoadLocalConfig(tomlDir)
+	if store.HasStoreLink(lc.Stores, link.Name) {
+		return mcp.NewToolResultText(fmt.Sprintf("Store %q is already linked (personal).", link.Name)), nil
+	}
+	lc.Stores = append(lc.Stores, link)
+	if err := config.WriteLocalConfig(tomlDir, lc); err != nil {
+		return errResult("writing local config: %v", err)
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Linked %q (personal, gitignored). All its secrets are now available via `valet run -- <command>`.", link.Name)), nil
+}
+
+// --- valet_copy: copy a single key from a store into the project ---
+
+var copyTool = mcp.NewTool("valet_copy",
+	mcp.WithDescription(`Copy a single secret from a personal or team store into this project's embedded store. The value is re-encrypted for the project's recipients — no secret values are exposed to the AI.
+
+Use this after valet_wallet_search finds a key. Copying makes the project self-contained (the key is committed encrypted in .valet/). Use valet_link instead if you want the key to stay in the source store and auto-update on rotation.`),
+	mcp.WithString("key", mcp.Required(), mcp.Description("Secret name to copy (e.g. OPENAI_API_KEY)")),
+	mcp.WithString("from", mcp.Required(), mcp.Description("Source store name (e.g. my-keys)")),
+	mcp.WithString("env", mcp.Description("Environment (default: dev)")),
+)
+
+func copyHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	key := req.GetString("key", "")
+	fromStore := req.GetString("from", "")
+	env := req.GetString("env", "dev")
+
+	if key == "" || fromStore == "" {
+		return errResult("both 'key' and 'from' are required")
+	}
+
+	id, err := identity.Load()
+	if err != nil {
+		return errResult("no identity found — run 'valet identity init' first")
+	}
+
+	// Open source store and find the secret.
+	source, err := store.FindStoreByName(fromStore, id)
+	if err != nil {
+		return errResult("source store %q not found", fromStore)
+	}
+	sourceProject, err := source.ResolveDefaultProject()
+	if err != nil {
+		return errResult("source store has no project: %v", err)
+	}
+	secret, scopePath, err := source.GetSecretFromEnv(sourceProject, env, key)
+	if err != nil || secret == nil {
+		return errResult("%s not found in %s (%s environment)", key, fromStore, env)
+	}
+
+	// Open target (embedded/primary) store and write.
+	target, err := store.Resolve(id)
+	if err != nil {
+		return errResult("opening project store: %v", err)
+	}
+	targetProject, err := target.ResolveDefaultProject()
+	if err != nil {
+		return errResult("no project found: %v", err)
+	}
+
+	targetScope := env + "/default"
+	if err := target.SetSecret(targetProject, targetScope, key, secret.Value); err != nil {
+		return errResult("copying secret: %v", err)
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Copied %s from %s/%s into %s. The project now owns its own copy.\n\nRun commands with `valet run -- <command>` to inject it.", key, fromStore, scopePath, targetScope)), nil
 }
 
 // --- valet_require: declare a dependency ---

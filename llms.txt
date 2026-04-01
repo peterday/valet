@@ -73,6 +73,8 @@ If Valet's MCP server is installed (`valet mcp install`), these tools are availa
 - `valet_init` — initialize valet in a project, returns CLAUDE.md snippet to write
 - `valet_status` — project config, environments, secrets, requirements (the "tell me everything" tool)
 - `valet_wallet_search` — check if user already has a key in personal stores
+- `valet_link` — link a store to the project (all its keys become available, no secrets exposed)
+- `valet_copy` — copy a single key from a store into the project (re-encrypted, no secrets exposed)
 - `valet_require` — declare secret dependencies; use provider without key to declare all env vars from a provider (e.g. provider="stripe" declares 3 keys)
 - `valet_provider_search` — discover providers by name, category, use case, or keyword (e.g. "payments", "vector database", "email"). 70+ providers available
 - `valet_help` — full CLI reference
@@ -81,6 +83,7 @@ Workflow when adding a dependency that uses an external API:
 1. `valet_provider_search` to find the provider and its env vars
 2. `valet_require` with provider name to declare all requirements
 3. `valet_wallet_search` to check if user already has the keys
-4. For missing keys, ask the user to type: `! valet setup`
+4. If found: ask user to choose link or copy, then call `valet_link` or `valet_copy`
+5. If not found: ask user to type `! valet setup` to enter values interactively
 
 MCP tools never expose secret values. To set secrets, ask the user to type `! valet secret set KEY` — the `!` prefix runs it interactively. Never use `--value` flag or `valet secret get`.

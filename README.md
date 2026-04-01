@@ -766,6 +766,8 @@ This registers Valet as an MCP server. Start a new session to use it.
 | `valet_init` | Initialize Valet in a project, returns CLAUDE.md snippet |
 | `valet_status` | Project config, environments, secrets, requirements |
 | `valet_wallet_search` | Check if user already has a key in their personal stores |
+| `valet_link` | Link a store to the project — all its keys become available |
+| `valet_copy` | Copy a single key from a store into the project |
 | `valet_require` | Declare secret dependencies — single key or entire provider |
 | `valet_provider_search` | Discover 70+ providers by name, category, or use case |
 | `valet_help` | Full CLI reference (9 topics) |
@@ -776,7 +778,8 @@ This registers Valet as an MCP server. Start a new session to use it.
 2. **Discover** — `valet_provider_search` query="payments" → finds Stripe, PayPal, etc.
 3. **Require** — `valet_require` provider="stripe" → declares all Stripe env vars
 4. **Find** — `valet_wallet_search` key="STRIPE_SECRET_KEY" → checks if user already has it
-5. **Setup** — ask user to type `! valet setup` → interactive configuration (stays in conversation)
+5. **Connect** — if found, ask user: link or copy? Then `valet_link` or `valet_copy`
+6. **Setup** — if not found, ask user to type `! valet setup` → interactive (stays in conversation)
 
 ### Design principles
 
