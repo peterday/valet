@@ -19,33 +19,6 @@ valet drive -- uvicorn main:app --reload               # run with secrets inject
 
 Secrets are encrypted in `.valet/`, injected at runtime by `valet drive`, and `.valet.toml` is safe to commit. Need a `.env` file? `valet sync .env`.
 
-## Migrating from .env
-
-Already have a `.env` file? Import it in one command:
-
-```bash
-valet identity init                                    # one time
-cd ~/code/my-api
-valet init                                             # creates encrypted store
-valet import .env                                      # imports all key=value pairs
-valet drive -- npm start                               # run with secrets injected
-```
-
-Your secrets are now encrypted. You can delete the `.env` file or keep it for non-secret config. To go back to `.env` at any time: `valet sync .env`.
-
-```bash
-# Import into a specific environment
-valet import .env.production -e prod
-
-# Overwrite existing secrets
-valet import .env --overwrite
-
-# Import into a specific scope
-valet import .env --scope dev/runtime
-```
-
-Valet handles comments (`#`), quoted values (`"val"`), and `export` prefixes.
-
 ## Stores
 
 A store is where your encrypted secrets live. Three types — start simple, scale up.
@@ -361,6 +334,45 @@ valet drive -- docker compose up
 # Docker run with flags
 docker run $(valet sync --format docker -e prod) my-image
 ```
+
+## Migrating from .env
+
+Already have `.env` files? Import them:
+
+```bash
+valet identity init                                    # one time
+cd ~/code/my-api
+valet init                                             # creates encrypted store
+valet import .env                                      # imports all key=value pairs
+valet drive -- npm start                               # run with secrets injected
+```
+
+Your secrets are now encrypted. Delete the `.env` file or keep it for non-secret config. To generate a `.env` at any time: `valet sync .env`.
+
+If you have per-environment `.env` files, import each one:
+
+```bash
+valet import .env                                      # → dev (default)
+valet import .env.staging -e staging                   # → staging
+valet import .env.production -e prod                   # → prod
+```
+
+Now you can run any environment:
+
+```bash
+valet drive -- npm start                               # dev
+valet drive -e staging -- npm start                    # staging
+valet drive -e prod -- npm start                       # prod
+```
+
+Other options:
+
+```bash
+valet import .env --overwrite                          # replace existing secrets
+valet import .env --scope dev/runtime                  # import into specific scope
+```
+
+Valet handles comments (`#`), quoted values (`"val"`), and `export` prefixes.
 
 ## Declaring Requirements
 
