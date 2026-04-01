@@ -110,6 +110,58 @@ valet sync .env -e prod
 
 Secrets are isolated per environment. Grant a teammate `dev` without exposing `prod`.
 
+## Local Overrides
+
+Like `.env.local` in Next.js — local developer overrides that are never committed.
+
+```bash
+valet secret set CACHE_URL --local                     # set for dev (default)
+valet secret set DATABASE_URL --local -e '*'           # set for all environments
+valet secret set API_KEY --local -e dev,staging         # set for specific envs
+```
+
+Local overrides live in `.valet.local/` (gitignored). They take highest priority in resolution — above the embedded store, above linked stores.
+
+```bash
+valet resolve
+  DATABASE_URL        postg...b/dev     .valet.local/*         ← local wildcard
+  OPENAI_API_KEY      sk-pr...xyz       .valet.local/dev       ← local override
+  CACHE_URL           redis...379       team-backend/dev       ← from team store
+  DATADOG_API_KEY     dd-ab...123       .valet/dev             ← from project
+```
+
+### Resolution order
+
+For a given key + environment (highest priority first):
+
+```
+1. --set overrides          (command line, ephemeral)
+2. .valet.local/{env}       (local developer overrides)
+3. .valet.local/*           (local wildcard)
+4. .valet/{env}             (shared project values)
+5. .valet/*                 (shared project wildcard)
+6. linked stores/{env}      (team/personal)
+7. linked stores/*          (team/personal wildcard)
+```
+
+### Wildcard environment
+
+Set a value once, applies to all environments:
+
+```bash
+valet secret set DATADOG_API_KEY -e '*'                # same key everywhere
+valet secret set DATABASE_URL -e dev                   # except dev uses this
+```
+
+### Inspecting resolution
+
+```bash
+valet resolve                                          # all secrets, masked
+valet resolve --show                                   # all secrets, values shown
+valet resolve DATABASE_URL --show                      # single key (pipeable)
+valet resolve DATABASE_URL --verbose                   # full provenance chain
+```
+
 ## Using Personal Keys in a Project
 
 You have API keys in a personal store. Your project needs them. Two ways to connect them:

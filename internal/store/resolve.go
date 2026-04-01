@@ -10,16 +10,18 @@ import (
 	"github.com/peterday/valet/internal/identity"
 )
 
-// ResolvedSecret is a secret with its source store name.
+// ResolvedSecret is a secret with its source store name and resolution metadata.
 type ResolvedSecret struct {
 	Key       string
 	Value     string
 	StoreName string
 	ScopePath string
+	Wildcard  bool // true if resolved from * environment
 }
 
 // ResolveAllSecrets merges secrets from multiple stores, in order.
-// Later stores override earlier ones (project > shared > personal).
+// Later stores override earlier ones (personal → shared → embedded → local).
+// Within each store, exact env matches take precedence over wildcard (*).
 func ResolveAllSecrets(stores []*Store, env string) (map[string]ResolvedSecret, error) {
 	result := make(map[string]ResolvedSecret)
 
@@ -29,28 +31,111 @@ func ResolveAllSecrets(stores []*Store, env string) (map[string]ResolvedSecret, 
 			continue
 		}
 
-		secrets, err := s.GetAllSecretsInEnv(project, env)
-		if err != nil {
-			continue
-		}
-
-		for k, v := range secrets {
+		// First, load wildcard (*) secrets as base.
+		wildcardSecrets, _ := s.GetAllSecretsInEnv(project, "*")
+		wildcardInEnv, _ := s.ListSecretsInEnv(project, "*")
+		for k, v := range wildcardSecrets {
 			scopePath := ""
-			secretsInEnv, _ := s.ListSecretsInEnv(project, env)
-			if sp, ok := secretsInEnv[k]; ok {
+			if sp, ok := wildcardInEnv[k]; ok {
 				scopePath = sp
 			}
-
 			result[k] = ResolvedSecret{
 				Key:       k,
 				Value:     v,
 				StoreName: s.Meta.Name,
 				ScopePath: scopePath,
+				Wildcard:  true,
+			}
+		}
+
+		// Then, load exact env secrets — these override wildcards.
+		if env != "*" {
+			secrets, err := s.GetAllSecretsInEnv(project, env)
+			if err != nil {
+				continue
+			}
+			secretsInEnv, _ := s.ListSecretsInEnv(project, env)
+
+			for k, v := range secrets {
+				scopePath := ""
+				if sp, ok := secretsInEnv[k]; ok {
+					scopePath = sp
+				}
+				result[k] = ResolvedSecret{
+					Key:       k,
+					Value:     v,
+					StoreName: s.Meta.Name,
+					ScopePath: scopePath,
+				}
 			}
 		}
 	}
 
 	return result, nil
+}
+
+// ResolveAllSecretsWithProvenance resolves secrets like ResolveAllSecrets but
+// also tracks what each key would have resolved to at each layer. Used by
+// valet resolve --verbose.
+func ResolveAllSecretsWithProvenance(stores []*Store, env string, overrides map[string]string) (map[string]ResolvedSecret, map[string][]ResolvedSecret, error) {
+	// provenance[key] = list of all sources that have this key, in resolution order.
+	provenance := make(map[string][]ResolvedSecret)
+
+	result, err := ResolveAllSecrets(stores, env)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Build provenance: iterate stores in order, record each source.
+	for _, s := range stores {
+		project, err := s.resolveProject("")
+		if err != nil {
+			continue
+		}
+
+		// Wildcard secrets.
+		wildcardSecrets, _ := s.GetAllSecretsInEnv(project, "*")
+		wildcardInEnv, _ := s.ListSecretsInEnv(project, "*")
+		for k, v := range wildcardSecrets {
+			sp := ""
+			if p, ok := wildcardInEnv[k]; ok {
+				sp = p
+			}
+			provenance[k] = append(provenance[k], ResolvedSecret{
+				Key: k, Value: v, StoreName: s.Meta.Name, ScopePath: sp, Wildcard: true,
+			})
+		}
+
+		// Exact env secrets.
+		if env != "*" {
+			secrets, _ := s.GetAllSecretsInEnv(project, env)
+			secretsInEnv, _ := s.ListSecretsInEnv(project, env)
+			for k, v := range secrets {
+				sp := ""
+				if p, ok := secretsInEnv[k]; ok {
+					sp = p
+				}
+				provenance[k] = append(provenance[k], ResolvedSecret{
+					Key: k, Value: v, StoreName: s.Meta.Name, ScopePath: sp,
+				})
+			}
+		}
+	}
+
+	// Apply overrides on top.
+	if len(overrides) > 0 {
+		for k, v := range overrides {
+			result[k] = ResolvedSecret{
+				Key:       k,
+				Value:     v,
+				StoreName: "--set",
+				ScopePath: "(command line)",
+			}
+			provenance[k] = append(provenance[k], result[k])
+		}
+	}
+
+	return result, provenance, nil
 }
 
 // ResolveAllSecretsFlat returns just key=value from merged stores.
@@ -67,13 +152,16 @@ func ResolveAllSecretsFlat(stores []*Store, env string) (map[string]string, erro
 	return flat, nil
 }
 
-// OpenLinkedStores opens all stores linked to the project, in resolution order:
-// local stores (from .valet.local.toml) → shared stores (from .valet.toml) → embedded store.
-// Returns them in that order so later entries override earlier ones.
-func OpenLinkedStores(localLinks []domain.StoreLink, sharedLinks []domain.StoreLink, embeddedStore *Store, id *identity.Identity) []*Store {
+// OpenLinkedStores opens all stores linked to the project, in resolution order.
+// Later entries override earlier ones. Full resolution order:
+//   1. Personal/local linked stores (lowest priority)
+//   2. Shared/team linked stores
+//   3. Embedded store (.valet/)
+//   4. Local override store (.valet.local/) — highest priority
+func OpenLinkedStores(localLinks []domain.StoreLink, sharedLinks []domain.StoreLink, embeddedStore *Store, localStore *Store, id *identity.Identity) []*Store {
 	var stores []*Store
 
-	// 1. Local/personal stores (lowest priority).
+	// 1. Personal linked stores (lowest priority).
 	for _, link := range localLinks {
 		ref := link.Name
 		if link.URL != "" {
@@ -84,7 +172,7 @@ func OpenLinkedStores(localLinks []domain.StoreLink, sharedLinks []domain.StoreL
 		}
 	}
 
-	// 2. Shared/team stores (middle priority).
+	// 2. Shared/team linked stores.
 	for _, link := range sharedLinks {
 		ref := link.Name
 		if link.URL != "" {
@@ -95,12 +183,71 @@ func OpenLinkedStores(localLinks []domain.StoreLink, sharedLinks []domain.StoreL
 		}
 	}
 
-	// 3. Embedded store (highest priority — overrides everything).
+	// 3. Embedded store (.valet/).
 	if embeddedStore != nil {
 		stores = append(stores, embeddedStore)
 	}
 
+	// 4. Local override store (.valet.local/) — highest priority.
+	if localStore != nil {
+		stores = append(stores, localStore)
+	}
+
 	return stores
+}
+
+// OpenLocalStore opens the .valet.local/ store if it exists.
+// Returns nil (no error) if it doesn't exist.
+func OpenLocalStore(projectDir string, id *identity.Identity) *Store {
+	localPath := filepath.Join(projectDir, ".valet.local")
+	if _, err := os.Stat(filepath.Join(localPath, "store.json")); os.IsNotExist(err) {
+		return nil
+	}
+	s, err := Open(localPath, id)
+	if err != nil {
+		return nil
+	}
+	s.Meta.Name = ".valet.local"
+	return s
+}
+
+// CreateLocalStore creates the .valet.local/ store for local developer overrides.
+func CreateLocalStore(projectDir string, id *identity.Identity) (*Store, error) {
+	localPath := filepath.Join(projectDir, ".valet.local")
+
+	// If it already exists, just open it.
+	if _, err := os.Stat(filepath.Join(localPath, "store.json")); err == nil {
+		return Open(localPath, id)
+	}
+
+	s, err := Create(localPath, ".valet.local", domain.StoreTypeLocal, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add .valet.local/ to .gitignore.
+	gitignorePath := filepath.Join(projectDir, ".gitignore")
+	ensureLineInFile(gitignorePath, ".valet.local/")
+
+	return s, nil
+}
+
+func ensureLineInFile(path, line string) {
+	data, _ := os.ReadFile(path)
+	for _, existing := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(existing) == line {
+			return
+		}
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		f.WriteString("\n")
+	}
+	f.WriteString(line + "\n")
 }
 
 // StoreLinkNames extracts store names from a slice of StoreLinks.

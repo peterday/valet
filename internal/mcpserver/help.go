@@ -45,6 +45,9 @@ const helpSecrets = `Secret commands:
 
   valet secret set KEY [--value val] [--provider X]    # set (prompts if no --value)
   valet secret set KEY -e prod --value val             # set in specific environment
+  valet secret set KEY -e dev,staging --value val      # set in multiple envs at once
+  valet secret set KEY -e '*' --value val              # set in wildcard (all envs)
+  valet secret set KEY --local                         # local override (.valet.local/)
   valet secret set KEY -s my-keys --value val          # set in specific store
   valet secret get KEY                                 # get value
   valet secret list                                    # list in current env
@@ -53,8 +56,21 @@ const helpSecrets = `Secret commands:
   valet secret copy KEY --from <store>                 # copy one secret into this project
   valet secret sync --to <store>                       # copy all resolved secrets into a store
 
+  valet resolve                                        # show all resolved secrets + sources
+  valet resolve --show                                 # show actual values
+  valet resolve KEY --show                             # single key, raw value (pipeable)
+  valet resolve KEY --verbose                          # full resolution chain
+  valet resolve --set KEY=VALUE                        # preview with command-line override
+
 Important: valet secret set without --value prompts the user interactively.
 Use this to let the user enter sensitive values without exposing them.
+
+Local overrides (--local):
+  Stores in .valet.local/ (gitignored). Use for personal dev values that
+  differ from the team (local DB, your own API key). Highest priority.
+
+Wildcard environment (-e '*'):
+  Applies to all environments unless a specific env overrides it.
 
 Link vs Copy:
   Link (valet link <store>):
@@ -75,6 +91,7 @@ const helpRunning = `Running and exporting:
 
   valet drive -- <command>                             # inject secrets and run (alias: valet run)
   valet drive -e prod -- <command>                     # specific environment
+  valet drive --set KEY=VALUE -- <command>             # override a secret for this run
   valet sync .env                                      # dotenv file
   valet sync --format json                             # JSON
   valet sync --format shell                            # export KEY=val

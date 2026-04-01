@@ -94,8 +94,9 @@ func openAllStores() ([]*store.Store, error) {
 
 	tomlDir := filepath.Dir(tomlPath)
 	lc, _ := config.LoadLocalConfig(tomlDir)
+	localStore := store.OpenLocalStore(tomlDir, id)
 
-	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, id), nil
+	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, localStore, id), nil
 }
 
 // resolveEnv returns the environment to use (flag override or default).

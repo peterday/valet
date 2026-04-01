@@ -333,7 +333,9 @@ func openAllProjectStores(id *identity.Identity) ([]*store.Store, error) {
 		return []*store.Store{primary}, nil
 	}
 
-	lc, _ := config.LoadLocalConfig(filepath.Dir(tomlPath))
+	tomlDir := filepath.Dir(tomlPath)
+	lc, _ := config.LoadLocalConfig(tomlDir)
+	localStore := store.OpenLocalStore(tomlDir, id)
 
-	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, id), nil
+	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, localStore, id), nil
 }
