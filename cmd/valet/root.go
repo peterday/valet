@@ -26,6 +26,17 @@ var rootCmd = &cobra.Command{
 	Short:   "API key management for developers and teams",
 	Long:    "Valet manages secrets in encrypted stores — locally, in git repos, or in the cloud.",
 	Version: version,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Don't check for updates when running MCP server or update itself.
+		name := cmd.Name()
+		if name == "serve" || name == "update" {
+			return
+		}
+		startUpdateCheck()
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		printUpdateNotice()
+	},
 }
 
 func Execute() error {
