@@ -10,23 +10,19 @@ permissions:
 
 jobs:
   build:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - os: macos-latest
-            goos: darwin
+          - goos: darwin
             goarch: arm64
-          - os: macos-13
-            goos: darwin
+          - goos: darwin
             goarch: amd64
-          - os: ubuntu-latest
-            goos: linux
+          - goos: linux
             goarch: amd64
-          - os: ubuntu-latest
-            goos: linux
+          - goos: linux
             goarch: arm64
 
-    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -37,7 +33,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           go build -ldflags "-s -w -X main.version=$VERSION" -o valet ./cmd/valet
@@ -47,7 +43,7 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           ARCHIVE="valet_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
           tar -czf "$ARCHIVE" valet
-          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+          sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
 
       - name: Upload
         uses: actions/upload-artifact@v4
