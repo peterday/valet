@@ -104,38 +104,42 @@ The URI `github:acme/api-secrets/api` means "the `api` project inside the `api-s
 
 Three ways to add someone, from easiest to most manual:
 
-**1. Invite (recommended)** — No key exchange needed. Works for embedded and team stores.
+**1. GitHub SSH key (easiest)** — Alice does everything. Bob does nothing.
+
+```bash
+# Alice:
+valet user add bob --github bob-smith
+valet env grant bob -e dev
+git add . && git commit -m "grant bob" && git push   # embedded store
+# or: valet push                                      # team store
+
+# Bob:
+git pull && valet drive -- npm start                  # just works
+```
+
+Alice fetches Bob's public key from `github.com/bob-smith.keys` and encrypts secrets to it. Bob pulls and can decrypt immediately. Check if someone has SSH keys at `github.com/<username>.keys`.
+
+**2. Invite** — For teammates without SSH keys on GitHub.
 
 ```bash
 # Alice creates an invite
-valet invite create -e dev                         # embedded store
-valet invite create -e dev -s acme-secrets         # team store
-# → AGE-SECRET-KEY-1XYZ...  (share this privately)
+valet invite create -e dev
+# → AGE-SECRET-KEY-1XYZ...  (share this privately with Bob)
 
-# Bob uses the invite
-# Embedded store (Bob already cloned the repo):
+# Bob uses the invite (embedded store — already cloned the repo):
 valet join --invite AGE-SECRET-KEY-1XYZ...
 
-# Team store (clone + join in one step):
+# Bob uses the invite (team store — clone + join in one step):
 valet join github:acme/api-secrets --invite AGE-SECRET-KEY-1XYZ...
 ```
 
-Bob gets immediate access — no waiting for Alice to grant. The invite key is single-use and expires (default 7 days). Alice never needs Bob's public key.
+Bob gets immediate access. The invite key is single-use and expires (default 7 days). No key exchange needed — Alice shares one string, Bob runs one command.
 
-**2. GitHub SSH key** — If Bob has SSH keys on GitHub, Alice can add and grant without any interaction from Bob.
-
-```bash
-valet user add bob --github bob-smith
-valet env grant bob -e dev
-```
-
-Bob pulls and has access immediately. No invite needed.
-
-**3. Manual key exchange** — Bob shares his valet public key with Alice.
+**3. Manual key exchange** — Fallback when neither of the above works.
 
 ```bash
 # Bob:
-valet identity export                              # → age1qy2x3...
+valet identity init && valet identity export       # → age1qy2x3...
 
 # Alice:
 valet user add bob --key age1qy2x3...
@@ -148,12 +152,12 @@ valet env grant bob -e dev
 valet invite create -e dev                         # single-use, expires in 7 days
 valet invite create -e dev -e staging              # grant multiple environments
 valet invite create -e dev --expires 3d            # custom expiry
-valet invite create -e dev --max-uses 5            # multi-use (e.g. for a whole team)
+valet invite create -e dev --max-uses 5            # multi-use (e.g. onboard a whole team)
 valet invite list                                  # show pending invites
 valet invite prune                                 # remove expired invites
 ```
 
-Expired invites are auto-pruned on `valet push`. Once an invite is used, the temporary key is removed from all vaults — it can never be reused.
+Expired invites are auto-pruned on `valet push`. Once used, the temporary key is removed from all vaults — it can never be reused.
 
 ### Granting and revoking
 
@@ -294,18 +298,30 @@ valet scope add-recipient <user> --scope <path>        # fine-grained access
 valet scope remove-recipient <user> --scope <path>     # fine-grained revoke
 ```
 
-### Users, Bots & Sharing
+### Users & Invites
 
 ```bash
 valet user add <name> --github <handle>                # add by GitHub SSH key
 valet user add <name> --key <pubkey>                   # add by age public key
 valet user list                                        # list users
+valet invite create -e <env>                           # create invite (prints temp key)
+valet invite create -e dev -e staging --expires 3d     # multi-env, custom expiry
+valet invite create -e dev --max-uses 5                # multi-use invite
+valet invite list                                      # list pending invites
+valet invite prune                                     # remove expired invites
+valet join <remote>                                    # clone shared store
+valet join --invite AGE-SECRET-KEY-...                 # join with invite (embedded)
+valet join <remote> --invite AGE-SECRET-KEY-...        # clone + join with invite
+valet push                                             # push to remote
+valet pull                                             # pull from remote
+```
+
+### Bots & CI
+
+```bash
 valet bot create <name> --grant <env>                  # create bot, prints VALET_KEY
 valet bot list                                         # list bots
 valet bot revoke <name> [--rotate]                     # revoke + remove bot
-valet push                                             # push to remote
-valet pull                                             # pull from remote
-valet join <remote>                                    # clone shared store
 ```
 
 ### Stores
