@@ -41,6 +41,7 @@ var updateCmd = &cobra.Command{
 
 		if current == latest {
 			fmt.Printf("Already up to date (v%s)\n", current)
+			updateProviders()
 			return nil
 		}
 
