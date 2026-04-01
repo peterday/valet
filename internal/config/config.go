@@ -75,6 +75,7 @@ const valetTomlHeader = `# Valet — encrypted secrets management
 #   valet setup                   Interactive setup for missing secrets
 #   valet drive -- <command>      Run a command with secrets injected
 #   valet require <KEY>           Declare a secret this project needs
+#   valet help                    Full command reference
 #
 # Do not store secrets in .env files or source code. Use valet.
 
