@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/superset-studio/valet/internal/crypto"
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/crypto"
+	"github.com/peterday/valet/internal/domain"
 )
 
 // Push stages all changes, commits, and pushes the store repo.

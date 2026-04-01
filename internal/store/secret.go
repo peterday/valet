@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/superset-studio/valet/internal/crypto"
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/crypto"
+	"github.com/peterday/valet/internal/domain"
 )
 
 // SetSecret sets or updates a secret in a scope's vault.

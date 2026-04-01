@@ -3,7 +3,7 @@
 Encrypted secrets management for developers and teams. Store locally, share through git, inject at runtime.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/superset-studio/valet/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/peterday/valet/main/install.sh | sh
 ```
 
 ## 30-Second Start
@@ -226,7 +226,7 @@ valet push
 
 ```yaml
 - uses: actions/checkout@v4
-- run: curl -fsSL https://raw.githubusercontent.com/superset-studio/valet/main/install.sh | sh
+- run: curl -fsSL https://raw.githubusercontent.com/peterday/valet/main/install.sh | sh
 - run: valet drive -- npm test
   env:
     VALET_KEY: ${{ secrets.VALET_KEY }}

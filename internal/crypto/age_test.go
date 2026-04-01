@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"filippo.io/age"
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/domain"
 )
 
 func generateTestKeypair(t *testing.T) *age.X25519Identity {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/superset-studio/valet/internal/identity"
+	"github.com/peterday/valet/internal/identity"
 )
 
 // ResolvedSecret is a secret with its source store name.

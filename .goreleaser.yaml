@@ -34,5 +34,5 @@ checksum:
 
 release:
   github:
-    owner: superset-studio
+    owner: peterday
     name: valet

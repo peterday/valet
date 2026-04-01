@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/superset-studio/valet/internal/config"
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/config"
+	"github.com/peterday/valet/internal/domain"
 )
 
 var (

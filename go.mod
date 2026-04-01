@@ -1,4 +1,4 @@
-module github.com/superset-studio/valet
+module github.com/peterday/valet
 
 go 1.25.1
 

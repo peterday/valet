@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/superset-studio/valet/internal/identity"
+	"github.com/peterday/valet/internal/identity"
 )
 
 var identityCmd = &cobra.Command{

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/domain"
 )
 
 // AddUser adds a user to the store.

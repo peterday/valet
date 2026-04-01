@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	toml "github.com/pelletier/go-toml/v2"
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/domain"
 )
 
 const (

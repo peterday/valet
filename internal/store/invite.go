@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/superset-studio/valet/internal/domain"
-	"github.com/superset-studio/valet/internal/identity"
+	"github.com/peterday/valet/internal/domain"
+	"github.com/peterday/valet/internal/identity"
 )
 
 // CreateInvite generates a temp keypair, adds the temp pubkey as a recipient

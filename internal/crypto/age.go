@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"filippo.io/age"
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/domain"
 )
 
 // ParseRecipients parses a list of public key strings into age recipients.

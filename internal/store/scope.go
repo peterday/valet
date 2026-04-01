@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/superset-studio/valet/internal/crypto"
-	"github.com/superset-studio/valet/internal/domain"
+	"github.com/peterday/valet/internal/crypto"
+	"github.com/peterday/valet/internal/domain"
 )
 
 // CreateScope creates a scope directory with an empty manifest and vault.

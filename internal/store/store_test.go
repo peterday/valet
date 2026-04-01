@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"filippo.io/age"
-	"github.com/superset-studio/valet/internal/domain"
-	"github.com/superset-studio/valet/internal/identity"
+	"github.com/peterday/valet/internal/domain"
+	"github.com/peterday/valet/internal/identity"
 )
 
 func testIdentity(t *testing.T) *identity.Identity {

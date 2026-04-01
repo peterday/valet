@@ -1,10 +1,10 @@
 #!/bin/sh
 # Valet installer — downloads the latest release from GitHub.
-# Usage: curl -fsSL https://raw.githubusercontent.com/superset-studio/valet/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/peterday/valet/main/install.sh | sh
 
 set -e
 
-REPO="superset-studio/valet"
+REPO="peterday/valet"
 INSTALL_DIR="/usr/local/bin"
 BINARY="valet"
 

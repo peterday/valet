@@ -7,7 +7,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/superset-studio/valet/internal/store"
+	"github.com/peterday/valet/internal/store"
 )
 
 var driveCmd = &cobra.Command{
