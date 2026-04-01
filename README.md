@@ -14,7 +14,7 @@ cd ~/code/my-api
 valet init                                             # creates encrypted store
 valet secret set OPENAI_API_KEY --value sk-abc123
 valet secret set DATABASE_URL --value postgres://localhost/mydb
-valet drive -- uvicorn main:app --reload               # run with secrets injected
+valet drive -- uvicorn main:app --reload                # run with secrets injected
 ```
 
 Secrets are encrypted in `.valet/`, injected at runtime by `valet drive`, and `.valet.toml` is safe to commit. Need a `.env` file? `valet sync .env`.
@@ -432,7 +432,7 @@ valet secret sync --to <store>                         # promote secrets between
 ### Running & Exporting
 
 ```bash
-valet drive -- <command>                               # inject secrets and run
+valet drive -- <command>                               # inject secrets and run (alias: valet run)
 valet drive -e prod -- <command>                       # specific environment
 valet sync .env                                        # dotenv file
 valet sync --format json                               # JSON
@@ -575,7 +575,7 @@ make test        # all tests
 - [x] Embedded, personal, and team stores with layering
 - [x] Store URIs with project: `github:org/repo/project`
 - [x] Projects, environments, scopes, recipients
-- [x] `valet drive` — inject and run
+- [x] `valet run` / `valet drive` — inject and run
 - [x] `valet sync` — 8 export formats
 - [x] `valet bot` — bot identities with `VALET_KEY`
 - [x] `valet require` + `valet setup` — project onboarding

@@ -11,14 +11,17 @@ import (
 )
 
 var driveCmd = &cobra.Command{
-	Use:   "drive [-- command ...]",
-	Short: "Run a command with secrets injected as environment variables",
+	Use:     "drive [-- command ...]",
+	Aliases: []string{"run"},
+	Short:   "Run a command with secrets injected as environment variables",
 	Long: `Drive a command with all secrets from the current environment injected.
 Secrets are merged from all linked stores (personal → team → project).
 
   valet drive -- uv run app.py
   valet drive -e prod -- node server.js
-  valet drive --scope dev/runtime -- npm start`,
+  valet drive --scope dev/runtime -- npm start
+
+Alias: valet run`,
 	DisableFlagParsing: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
