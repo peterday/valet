@@ -165,6 +165,7 @@ func (r *Registry) loadDir(dir string) {
 		}
 		p, err := loadProviderFile(filepath.Join(dir, e.Name()))
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping provider file %s: %v\n", e.Name(), err)
 			continue
 		}
 		r.providers[p.Name] = p

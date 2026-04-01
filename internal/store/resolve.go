@@ -10,6 +10,13 @@ import (
 	"github.com/peterday/valet/internal/identity"
 )
 
+// LinkedStore pairs a store with its link metadata (key filtering, env mapping).
+// Stores without link metadata (embedded, local override) have a nil Link.
+type LinkedStore struct {
+	Store *Store
+	Link  *domain.StoreLink // nil for embedded/local override stores
+}
+
 // ResolvedSecret is a secret with its source store name and resolution metadata.
 type ResolvedSecret struct {
 	Key       string
@@ -22,25 +29,42 @@ type ResolvedSecret struct {
 // ResolveAllSecrets merges secrets from multiple stores, in order.
 // Later stores override earlier ones (personal → shared → embedded → local).
 // Within each store, exact env matches take precedence over wildcard (*).
-func ResolveAllSecrets(stores []*Store, env string) (map[string]ResolvedSecret, error) {
+// Key filtering and env/name mapping from StoreLink metadata are applied.
+func ResolveAllSecrets(stores []LinkedStore, env string) (map[string]ResolvedSecret, error) {
 	result := make(map[string]ResolvedSecret)
 
-	for _, s := range stores {
+	for _, ls := range stores {
+		s := ls.Store
 		project, err := s.resolveProject("")
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping store %q: %v\n", s.Meta.Name, err)
 			continue
 		}
 
+		// Determine which env to read from the remote store.
+		remoteEnv := env
+		if ls.Link != nil {
+			remoteEnv = ls.Link.ResolveEnv(env)
+		}
+
+		// Get key mappings from the link (nil = all keys, no remapping).
+		keyMappings := keyMappingsForLink(ls.Link)
+
 		// First, load wildcard (*) secrets as base.
-		wildcardSecrets, _ := s.GetAllSecretsInEnv(project, "*")
-		wildcardInEnv, _ := s.ListSecretsInEnv(project, "*")
-		for k, v := range wildcardSecrets {
+		remoteWildcard := "*"
+		wildcardSecrets, _ := s.GetAllSecretsInEnv(project, remoteWildcard)
+		wildcardInEnv, _ := s.ListSecretsInEnv(project, remoteWildcard)
+		for remoteKey, v := range wildcardSecrets {
+			localKey := mapRemoteToLocal(remoteKey, keyMappings)
+			if localKey == "" {
+				continue // filtered out
+			}
 			scopePath := ""
-			if sp, ok := wildcardInEnv[k]; ok {
+			if sp, ok := wildcardInEnv[remoteKey]; ok {
 				scopePath = sp
 			}
-			result[k] = ResolvedSecret{
-				Key:       k,
+			result[localKey] = ResolvedSecret{
+				Key:       localKey,
 				Value:     v,
 				StoreName: s.Meta.Name,
 				ScopePath: scopePath,
@@ -50,19 +74,23 @@ func ResolveAllSecrets(stores []*Store, env string) (map[string]ResolvedSecret, 
 
 		// Then, load exact env secrets — these override wildcards.
 		if env != "*" {
-			secrets, err := s.GetAllSecretsInEnv(project, env)
+			secrets, err := s.GetAllSecretsInEnv(project, remoteEnv)
 			if err != nil {
 				continue
 			}
-			secretsInEnv, _ := s.ListSecretsInEnv(project, env)
+			secretsInEnv, _ := s.ListSecretsInEnv(project, remoteEnv)
 
-			for k, v := range secrets {
+			for remoteKey, v := range secrets {
+				localKey := mapRemoteToLocal(remoteKey, keyMappings)
+				if localKey == "" {
+					continue // filtered out
+				}
 				scopePath := ""
-				if sp, ok := secretsInEnv[k]; ok {
+				if sp, ok := secretsInEnv[remoteKey]; ok {
 					scopePath = sp
 				}
-				result[k] = ResolvedSecret{
-					Key:       k,
+				result[localKey] = ResolvedSecret{
+					Key:       localKey,
 					Value:     v,
 					StoreName: s.Meta.Name,
 					ScopePath: scopePath,
@@ -74,10 +102,33 @@ func ResolveAllSecrets(stores []*Store, env string) (map[string]ResolvedSecret, 
 	return result, nil
 }
 
+// keyMappingsForLink returns the parsed key mappings for a link, or nil (all keys).
+func keyMappingsForLink(link *domain.StoreLink) []domain.KeyMapping {
+	if link == nil {
+		return nil
+	}
+	return link.ParsedKeys()
+}
+
+// mapRemoteToLocal maps a remote key name to the local key name using key mappings.
+// Returns "" if the key is filtered out (mappings exist but don't include this key).
+// Returns the key unchanged if mappings is nil (all keys, no remapping).
+func mapRemoteToLocal(remoteKey string, mappings []domain.KeyMapping) string {
+	if mappings == nil {
+		return remoteKey // no filtering
+	}
+	for _, km := range mappings {
+		if km.Remote == remoteKey {
+			return km.Local
+		}
+	}
+	return "" // not in the allowed list
+}
+
 // ResolveAllSecretsWithProvenance resolves secrets like ResolveAllSecrets but
 // also tracks what each key would have resolved to at each layer. Used by
 // valet resolve --verbose.
-func ResolveAllSecretsWithProvenance(stores []*Store, env string, overrides map[string]string) (map[string]ResolvedSecret, map[string][]ResolvedSecret, error) {
+func ResolveAllSecretsWithProvenance(stores []LinkedStore, env string, overrides map[string]string) (map[string]ResolvedSecret, map[string][]ResolvedSecret, error) {
 	// provenance[key] = list of all sources that have this key, in resolution order.
 	provenance := make(map[string][]ResolvedSecret)
 
@@ -87,36 +138,51 @@ func ResolveAllSecretsWithProvenance(stores []*Store, env string, overrides map[
 	}
 
 	// Build provenance: iterate stores in order, record each source.
-	for _, s := range stores {
+	for _, ls := range stores {
+		s := ls.Store
 		project, err := s.resolveProject("")
 		if err != nil {
 			continue
 		}
 
+		remoteEnv := env
+		if ls.Link != nil {
+			remoteEnv = ls.Link.ResolveEnv(env)
+		}
+		keyMappings := keyMappingsForLink(ls.Link)
+
 		// Wildcard secrets.
 		wildcardSecrets, _ := s.GetAllSecretsInEnv(project, "*")
 		wildcardInEnv, _ := s.ListSecretsInEnv(project, "*")
-		for k, v := range wildcardSecrets {
+		for remoteKey, v := range wildcardSecrets {
+			localKey := mapRemoteToLocal(remoteKey, keyMappings)
+			if localKey == "" {
+				continue
+			}
 			sp := ""
-			if p, ok := wildcardInEnv[k]; ok {
+			if p, ok := wildcardInEnv[remoteKey]; ok {
 				sp = p
 			}
-			provenance[k] = append(provenance[k], ResolvedSecret{
-				Key: k, Value: v, StoreName: s.Meta.Name, ScopePath: sp, Wildcard: true,
+			provenance[localKey] = append(provenance[localKey], ResolvedSecret{
+				Key: localKey, Value: v, StoreName: s.Meta.Name, ScopePath: sp, Wildcard: true,
 			})
 		}
 
 		// Exact env secrets.
 		if env != "*" {
-			secrets, _ := s.GetAllSecretsInEnv(project, env)
-			secretsInEnv, _ := s.ListSecretsInEnv(project, env)
-			for k, v := range secrets {
+			secrets, _ := s.GetAllSecretsInEnv(project, remoteEnv)
+			secretsInEnv, _ := s.ListSecretsInEnv(project, remoteEnv)
+			for remoteKey, v := range secrets {
+				localKey := mapRemoteToLocal(remoteKey, keyMappings)
+				if localKey == "" {
+					continue
+				}
 				sp := ""
-				if p, ok := secretsInEnv[k]; ok {
+				if p, ok := secretsInEnv[remoteKey]; ok {
 					sp = p
 				}
-				provenance[k] = append(provenance[k], ResolvedSecret{
-					Key: k, Value: v, StoreName: s.Meta.Name, ScopePath: sp,
+				provenance[localKey] = append(provenance[localKey], ResolvedSecret{
+					Key: localKey, Value: v, StoreName: s.Meta.Name, ScopePath: sp,
 				})
 			}
 		}
@@ -139,7 +205,7 @@ func ResolveAllSecretsWithProvenance(stores []*Store, env string, overrides map[
 }
 
 // ResolveAllSecretsFlat returns just key=value from merged stores.
-func ResolveAllSecretsFlat(stores []*Store, env string) (map[string]string, error) {
+func ResolveAllSecretsFlat(stores []LinkedStore, env string) (map[string]string, error) {
 	resolved, err := ResolveAllSecrets(stores, env)
 	if err != nil {
 		return nil, err
@@ -158,39 +224,44 @@ func ResolveAllSecretsFlat(stores []*Store, env string) (map[string]string, erro
 //   2. Shared/team linked stores
 //   3. Embedded store (.valet/)
 //   4. Local override store (.valet.local/) — highest priority
-func OpenLinkedStores(localLinks []domain.StoreLink, sharedLinks []domain.StoreLink, embeddedStore *Store, localStore *Store, id *identity.Identity) []*Store {
-	var stores []*Store
+//
+// Each linked store carries its StoreLink metadata for key filtering and env mapping.
+// Embedded and local override stores have nil Link (no filtering).
+func OpenLinkedStores(localLinks []domain.StoreLink, sharedLinks []domain.StoreLink, embeddedStore *Store, localStore *Store, id *identity.Identity) []LinkedStore {
+	var stores []LinkedStore
 
 	// 1. Personal linked stores (lowest priority).
-	for _, link := range localLinks {
+	for i := range localLinks {
+		link := &localLinks[i]
 		ref := link.Name
 		if link.URL != "" {
 			ref = link.URL
 		}
 		if s := openStoreRef(ref, id); s != nil {
-			stores = append(stores, s)
+			stores = append(stores, LinkedStore{Store: s, Link: link})
 		}
 	}
 
 	// 2. Shared/team linked stores.
-	for _, link := range sharedLinks {
+	for i := range sharedLinks {
+		link := &sharedLinks[i]
 		ref := link.Name
 		if link.URL != "" {
 			ref = link.URL
 		}
 		if s := openStoreRef(ref, id); s != nil {
-			stores = append(stores, s)
+			stores = append(stores, LinkedStore{Store: s, Link: link})
 		}
 	}
 
-	// 3. Embedded store (.valet/).
+	// 3. Embedded store (.valet/) — no link metadata.
 	if embeddedStore != nil {
-		stores = append(stores, embeddedStore)
+		stores = append(stores, LinkedStore{Store: embeddedStore})
 	}
 
-	// 4. Local override store (.valet.local/) — highest priority.
+	// 4. Local override store (.valet.local/) — highest priority, no link metadata.
 	if localStore != nil {
-		stores = append(stores, localStore)
+		stores = append(stores, LinkedStore{Store: localStore})
 	}
 
 	return stores

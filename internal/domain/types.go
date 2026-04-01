@@ -105,8 +105,7 @@ type EnvMapping struct {
 type StoreLink struct {
 	Name         string       `toml:"name"`
 	URL          string       `toml:"url,omitempty"`          // git URL for git-backed stores
-	Keys         []any        `toml:"-"`                      // parsed separately: string or KeyMapping
-	RawKeys      []any        `toml:"keys,omitempty"`         // raw TOML value
+	RawKeys      []any        `toml:"keys,omitempty"`         // raw TOML: strings or {local, remote} maps
 	Environments []EnvMapping `toml:"environments,omitempty"` // only needed when env names differ
 }
 
@@ -129,6 +128,9 @@ func (sl *StoreLink) ParsedKeys() []KeyMapping {
 			}
 			if r, ok := v["remote"].(string); ok {
 				km.Remote = r
+			}
+			if km.Local == "" || km.Remote == "" {
+				continue // skip malformed entries
 			}
 			result = append(result, km)
 		}

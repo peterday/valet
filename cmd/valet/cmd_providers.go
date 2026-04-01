@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/provider"
@@ -82,15 +83,12 @@ private/internal provider definitions.
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref := args[0]
 
-		// Infer git URL and local name.
-		var gitURL, name string
-		if len(ref) > 0 && ref[0] == '/' || ref[0] == '.' {
-			return fmt.Errorf("use github-owner/repo format (e.g. acme/internal-providers)")
+		// Validate owner/repo format.
+		if !isValidRegistryRef(ref) {
+			return fmt.Errorf("use owner/repo format (e.g. acme/internal-providers)")
 		}
-		parts := filepath.SplitList(ref)
-		_ = parts
-		name = filepath.Base(ref)
-		gitURL = fmt.Sprintf("https://github.com/%s.git", ref)
+		name := filepath.Base(ref)
+		gitURL := fmt.Sprintf("https://github.com/%s.git", ref)
 
 		baseDir := provider.ProvidersBaseDir()
 		if err := os.MkdirAll(baseDir, 0755); err != nil {
@@ -172,6 +170,13 @@ var providersRemoveCmd = &cobra.Command{
 		fmt.Printf("Removed registry %q\n", name)
 		return nil
 	},
+}
+
+var registryRefPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$`)
+
+// isValidRegistryRef validates that ref is a safe owner/repo format.
+func isValidRegistryRef(ref string) bool {
+	return registryRefPattern.MatchString(ref)
 }
 
 func init() {

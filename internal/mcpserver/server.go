@@ -42,7 +42,7 @@ If no .valet.toml exists, the project hasn't been initialized. Run 'valet init' 
 )
 
 func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	env := stringArg(req, "env", "dev")
+	env := req.GetString("env", "dev")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -173,8 +173,8 @@ var walletSearchTool = mcp.NewTool("valet_wallet_search",
 )
 
 func walletSearchHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	key := req.Params.Arguments["key"].(string)
-	env := stringArg(req, "env", "dev")
+	key := req.GetString("key", "")
+	env := req.GetString("env", "dev")
 
 	id, err := identity.Load()
 	if err != nil {
@@ -220,10 +220,10 @@ var requireTool = mcp.NewTool("valet_require",
 )
 
 func requireHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	key := req.Params.Arguments["key"].(string)
-	provider := stringArg(req, "provider", "")
-	description := stringArg(req, "description", "")
-	optional := boolArg(req, "optional", false)
+	key := req.GetString("key", "")
+	provider := req.GetString("provider", "")
+	description := req.GetString("description", "")
+	optional := req.GetBool("optional", false)
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -288,31 +288,17 @@ var helpTool = mcp.NewTool("valet_help",
 )
 
 func helpHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	topic := stringArg(req, "topic", "")
+	topic := req.GetString("topic", "")
 	return mcp.NewToolResultText(helpText(topic)), nil
 }
 
 // --- Helpers ---
 
-func stringArg(req mcp.CallToolRequest, name, defaultVal string) string {
-	if v, ok := req.Params.Arguments[name].(string); ok && v != "" {
-		return v
-	}
-	return defaultVal
-}
-
-func boolArg(req mcp.CallToolRequest, name string, defaultVal bool) bool {
-	if v, ok := req.Params.Arguments[name].(bool); ok {
-		return v
-	}
-	return defaultVal
-}
-
 func errResult(format string, args ...any) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(fmt.Sprintf(format, args...)), nil
 }
 
-func openAllProjectStores(id *identity.Identity) ([]*store.Store, error) {
+func openAllProjectStores(id *identity.Identity) ([]store.LinkedStore, error) {
 	primary, err := store.Resolve(id)
 	if err != nil {
 		return nil, err
@@ -320,17 +306,19 @@ func openAllProjectStores(id *identity.Identity) ([]*store.Store, error) {
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		return []*store.Store{primary}, nil
+		fmt.Fprintf(os.Stderr, "warning: cannot get working directory: %v\n", err)
+		return []store.LinkedStore{{Store: primary}}, nil
 	}
 
 	tomlPath, err := config.FindValetToml(cwd)
 	if err != nil {
-		return []*store.Store{primary}, nil
+		return []store.LinkedStore{{Store: primary}}, nil
 	}
 
 	vc, err := config.LoadValetToml(tomlPath)
 	if err != nil {
-		return []*store.Store{primary}, nil
+		fmt.Fprintf(os.Stderr, "warning: reading .valet.toml: %v\n", err)
+		return []store.LinkedStore{{Store: primary}}, nil
 	}
 
 	tomlDir := filepath.Dir(tomlPath)

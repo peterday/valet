@@ -467,7 +467,7 @@ resolve at runtime (auto-updates when rotated, but requires the link).
 			return fmt.Errorf("source store: %w", err)
 		}
 		secret, scopePath, err := source.GetSecretFromEnv(sourceProject, env, key)
-		if err != nil {
+		if err != nil || secret == nil {
 			return fmt.Errorf("%s not found in %s (%s environment)", key, secretCopyFromFlag, env)
 		}
 

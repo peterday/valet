@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/store"
@@ -109,10 +107,10 @@ Resolution order (highest priority first):
 		// Header.
 		if resolveShowFlag {
 			fmt.Printf("%-30s %-40s %s\n", "SECRET", "VALUE", "SOURCE")
-			fmt.Printf("%-30s %-40s %s\n", "------", "-----", "------")
+			fmt.Printf("%-30s %-40s %s\n", "------------------------------", "----------------------------------------", "------")
 		} else {
 			fmt.Printf("%-30s %-20s %s\n", "SECRET", "VALUE", "SOURCE")
-			fmt.Printf("%-30s %-20s %s\n", "------", "-----", "------")
+			fmt.Printf("%-30s %-20s %s\n", "------------------------------", "--------------------", "------")
 		}
 
 		for key, rs := range resolved {
