@@ -19,6 +19,8 @@ func helpText(topic string) string {
 		return helpStores
 	case "ai":
 		return helpAI
+	case "providers":
+		return helpProviders
 	case "security":
 		return helpSecurity
 	default:
@@ -137,15 +139,76 @@ const helpStores = `Store commands:
   valet store create github:acme/secrets               # team git-backed store
   valet store list                                     # list stores
   valet store delete my-secrets                        # delete a local store
-  valet link <store-name>                              # link store to current project
-  valet link <store-name> --shared                     # link as shared (committed)
+  valet link <store-name>                              # link store (personal, gitignored)
+  valet link <store-name> --shared                     # link store (shared, committed)
 
 Store types:
-  Embedded — .valet/ in your project. Encrypted values safe to commit.
-  Personal — ~/.valet/stores/. Your keys, reused across projects.
-  Team — git-backed. Shared via a private repo.
+  Local — lives on this machine only (~/.valet/stores/).
+  Git-backed — lives in a git repo, can be shared.
+  Embedded — .valet/ inside the project. Encrypted values safe to commit.
 
-Stores layer: personal → team → embedded. Embedded wins on conflict.`
+Stores layer: personal → shared → embedded. Embedded wins on conflict.
+
+Store linking in .valet.toml:
+
+  # Simplest — all keys, environments match by name:
+  [[stores]]
+  name = "team-backend"
+  url = "git@github.com:acme/secrets-backend.git"
+
+  # Filter to specific keys:
+  [[stores]]
+  name = "team-infra"
+  url = "git@github.com:acme/secrets-infra.git"
+  keys = ["CACHE_URL", {local = "DATABASE_URL", remote = "POSTGRES_PRIMARY_URL"}]
+
+  # Map environment names:
+  [[stores]]
+  name = "team-backend"
+  url = "git@github.com:acme/secrets-backend.git"
+  environments = [{local = "dev", remote = "staging"}]
+
+Resolution order for a key + environment:
+  1. Embedded store (.valet/) — local overrides always win
+  2. Linked stores in declaration order
+  3. Conflict if multiple stores provide the same key → error
+
+Link types when setting up a missing secret:
+  Copy         — snapshot value into this project's embedded store
+  Link (me)    — personal link in .valet.local.toml (gitignored)
+  Link (project) — shared link in .valet.toml (only for git-backed stores)`
+
+const helpProviders = `Provider registry:
+
+Valet has a built-in registry of common API providers (OpenAI, Anthropic,
+Stripe, Supabase, Fly.io, Exa, ElevenLabs). For each provider, Valet knows:
+  - Setup URL (shortest path to getting a key)
+  - Environment variable names
+  - Key prefix for format validation
+  - Validation endpoint
+  - Free tier details
+  - Rotation characteristics
+
+When a required secret matches a known provider (by env var name or explicit
+provider flag), valet setup opens the right browser page, validates the key
+format, and confirms it works before storing.
+
+Providers are matched by env var name lookup (not pattern inference):
+  OPENAI_API_KEY → openai
+  STRIPE_SECRET_KEY → stripe
+  SUPABASE_URL → supabase
+
+Unknown env var names fall back to a plain prompt. You can always set a
+provider explicitly: valet require MY_AI_KEY --provider openai
+
+Key rotation varies by provider:
+  OpenAI    — create-then-revoke (programmatic via admin API)
+  Anthropic — create-then-revoke (manual, console only)
+  Stripe    — rolling rotation (old key has 24h grace period)
+  Supabase  — nuclear (changing JWT secret invalidates ALL keys)
+  Fly.io    — create-then-revoke (programmatic via CLI)
+  Exa       — manual
+  ElevenLabs — manual`
 
 const helpSecurity = `Security model:
 
@@ -167,4 +230,4 @@ Once installed, AI tools get structured access to Valet via MCP tools
 (valet_status, valet_wallet_search, valet_require, valet_help).
 All other commands can be run via the terminal.`
 
-const helpFull = helpSetup + "\n\n" + helpSecrets + "\n\n" + helpRunning + "\n\n" + helpEnvironments + "\n\n" + helpUsers + "\n\n" + helpBots + "\n\n" + helpStores + "\n\n" + helpAI + "\n\n" + helpSecurity
+const helpFull = helpSetup + "\n\n" + helpSecrets + "\n\n" + helpRunning + "\n\n" + helpEnvironments + "\n\n" + helpUsers + "\n\n" + helpBots + "\n\n" + helpStores + "\n\n" + helpProviders + "\n\n" + helpAI + "\n\n" + helpSecurity

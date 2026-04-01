@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/peterday/valet/internal/domain"
 	"github.com/peterday/valet/internal/identity"
 )
 
@@ -69,18 +70,26 @@ func ResolveAllSecretsFlat(stores []*Store, env string) (map[string]string, erro
 // OpenLinkedStores opens all stores linked to the project, in resolution order:
 // local stores (from .valet.local.toml) → shared stores (from .valet.toml) → embedded store.
 // Returns them in that order so later entries override earlier ones.
-func OpenLinkedStores(localStoreRefs []string, sharedStoreRefs []string, embeddedStore *Store, id *identity.Identity) []*Store {
+func OpenLinkedStores(localLinks []domain.StoreLink, sharedLinks []domain.StoreLink, embeddedStore *Store, id *identity.Identity) []*Store {
 	var stores []*Store
 
 	// 1. Local/personal stores (lowest priority).
-	for _, ref := range localStoreRefs {
+	for _, link := range localLinks {
+		ref := link.Name
+		if link.URL != "" {
+			ref = link.URL
+		}
 		if s := openStoreRef(ref, id); s != nil {
 			stores = append(stores, s)
 		}
 	}
 
 	// 2. Shared/team stores (middle priority).
-	for _, ref := range sharedStoreRefs {
+	for _, link := range sharedLinks {
+		ref := link.Name
+		if link.URL != "" {
+			ref = link.URL
+		}
 		if s := openStoreRef(ref, id); s != nil {
 			stores = append(stores, s)
 		}
@@ -92,6 +101,25 @@ func OpenLinkedStores(localStoreRefs []string, sharedStoreRefs []string, embedde
 	}
 
 	return stores
+}
+
+// StoreLinkNames extracts store names from a slice of StoreLinks.
+func StoreLinkNames(links []domain.StoreLink) []string {
+	names := make([]string, len(links))
+	for i, l := range links {
+		names[i] = l.Name
+	}
+	return names
+}
+
+// HasStoreLink checks if a store name exists in a slice of StoreLinks.
+func HasStoreLink(links []domain.StoreLink, name string) bool {
+	for _, l := range links {
+		if l.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // openStoreRef opens a store by name or finds it by remote URL.

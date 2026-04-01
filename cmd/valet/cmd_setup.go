@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/config"
+	"github.com/peterday/valet/internal/domain"
 	"github.com/peterday/valet/internal/store"
 )
 
@@ -97,15 +98,8 @@ Unlinked stores with matching secrets are offered for linking.`,
 					if answer == "" || answer == "y" || answer == "yes" {
 						// Link the store.
 						lc, _ := config.LoadLocalConfig(tomlDir)
-						alreadyLinked := false
-						for _, s := range lc.Stores {
-							if s == m.StoreName {
-								alreadyLinked = true
-								break
-							}
-						}
-						if !alreadyLinked {
-							lc.Stores = append(lc.Stores, m.StoreName)
+						if !store.HasStoreLink(lc.Stores, m.StoreName) {
+							lc.Stores = append(lc.Stores, domain.StoreLink{Name: m.StoreName})
 							config.WriteLocalConfig(tomlDir, lc)
 							ensureInGitignore(tomlDir, config.ValetLocalToml)
 							fmt.Printf("    Linked %s\n", m.StoreName)
@@ -130,15 +124,8 @@ Unlinked stores with matching secrets are offered for linking.`,
 					if idx := parseChoice(answer, len(matches)); idx >= 0 {
 						m := matches[idx]
 						lc, _ := config.LoadLocalConfig(tomlDir)
-						alreadyLinked := false
-						for _, s := range lc.Stores {
-							if s == m.StoreName {
-								alreadyLinked = true
-								break
-							}
-						}
-						if !alreadyLinked {
-							lc.Stores = append(lc.Stores, m.StoreName)
+						if !store.HasStoreLink(lc.Stores, m.StoreName) {
+							lc.Stores = append(lc.Stores, domain.StoreLink{Name: m.StoreName})
 							config.WriteLocalConfig(tomlDir, lc)
 							ensureInGitignore(tomlDir, config.ValetLocalToml)
 							fmt.Printf("    Linked %s\n", m.StoreName)

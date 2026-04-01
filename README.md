@@ -413,6 +413,90 @@ optional = true
 
 `valet status` shows what's resolved. `valet setup` fills in the gaps interactively.
 
+## Store Linking
+
+Linked stores make their secrets available to a project. The simplest link is just a name — all keys, environments matched by name:
+
+```toml
+[[stores]]
+name = "team-backend"
+url = "git@github.com:acme/secrets-backend.git"
+```
+
+### Key filtering and name mapping
+
+Filter to specific keys, or remap names when the source store uses different conventions:
+
+```toml
+[[stores]]
+name = "team-infra"
+url = "git@github.com:acme/secrets-infra.git"
+keys = [
+  "CACHE_URL",
+  { local = "DATABASE_URL", remote = "POSTGRES_PRIMARY_URL" },
+  { local = "DATABASE_URL_RO", remote = "POSTGRES_REPLICA_URL" },
+]
+```
+
+Without `keys`, all secrets from the linked store are available.
+
+### Environment mapping
+
+When local and remote environment names differ:
+
+```toml
+[[stores]]
+name = "team-backend"
+url = "git@github.com:acme/secrets-backend.git"
+environments = [
+  { local = "dev", remote = "staging" },
+]
+```
+
+Unmapped environments match by name — `production` → `production` is implicit.
+
+### Resolution order
+
+For a given key + environment:
+
+1. **Embedded store** (`.valet/`) — local overrides always win
+2. **Linked stores** — in declaration order (shared, then personal)
+3. **Conflict** — if multiple linked stores provide the same key, `valet status` shows an error
+
+### Link types
+
+When `valet setup` finds a missing secret in another store, you choose how to connect it:
+
+| Choice | What happens | Stored in | Who benefits |
+|---|---|---|---|
+| **Copy** | Value copied into embedded store | `.valet/secrets` (committed) | Everyone with project access |
+| **Link (just me)** | Personal link to source store | `.valet.local.toml` (gitignored) | Only this developer |
+| **Link (project)** | Project declares store dependency | `.valet.toml` (committed) | All contributors |
+
+"Link (project)" only appears for git-backed stores — you can't ask teammates to use a store that only exists on your laptop.
+
+## Provider Registry
+
+Valet has a built-in registry of common API providers. When a required secret matches a known provider, `valet setup` opens the right browser page, validates the key format, and confirms it works.
+
+Supported providers: **OpenAI**, **Anthropic**, **Stripe**, **Supabase**, **Fly.io**, **Exa**, **ElevenLabs**.
+
+Providers are matched by env var name (not pattern inference):
+
+```
+OPENAI_API_KEY      → openai
+STRIPE_SECRET_KEY   → stripe
+SUPABASE_URL        → supabase
+```
+
+For non-standard names, set the provider explicitly:
+
+```bash
+valet require MY_AI_KEY --provider openai
+```
+
+Key rotation varies by provider — `valet rotate` guides you through the right process for each.
+
 ## CLI Reference
 
 ### Setup
@@ -558,12 +642,27 @@ valet link github:pday/my-keys                         # personal (gitignored)
 valet link github:acme/api-secrets/api --shared        # team (committed)
 ```
 
-Secrets merge — project-specific wins on conflict:
+Secrets merge — embedded store wins on conflict:
 
 ```
 personal (my-keys)      → OPENAI_API_KEY
 team (api-secrets)      → DATADOG_API_KEY
 embedded (.valet/)      → DATABASE_URL               ← wins on conflict
+```
+
+The resulting `.valet.toml`:
+
+```toml
+[[stores]]
+name = "api-secrets"
+url = "git@github.com:acme/api-secrets.git"
+```
+
+And `.valet.local.toml` (gitignored):
+
+```toml
+[[stores]]
+name = "my-keys"
 ```
 
 ## Security
@@ -601,7 +700,9 @@ make test        # all tests
 - [x] `valet join` — auto-accept GitHub invites, show accessible secrets, `--as` alias
 - [x] `valet user add --github` — auto-invite as GitHub collaborator
 - [x] `valet store delete` — clean up local stores
-- [ ] Provider automation — create/rotate keys via provider APIs
+- [x] Provider registry — setup URLs, key validation, rotation guidance
+- [x] Store linking — key filtering, name mapping, environment mapping
+- [ ] Provider automation — create/rotate keys via provider APIs (OpenAI, Fly.io)
 - [ ] Cloud-backed stores with audit logs
 - [ ] Kubernetes operator
 

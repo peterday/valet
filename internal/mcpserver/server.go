@@ -12,6 +12,7 @@ import (
 	"github.com/peterday/valet/internal/config"
 	"github.com/peterday/valet/internal/domain"
 	"github.com/peterday/valet/internal/identity"
+	"github.com/peterday/valet/internal/provider"
 	"github.com/peterday/valet/internal/store"
 )
 
@@ -71,12 +72,12 @@ func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	fmt.Fprintf(&b, "Default environment: %s\n", vc.DefaultEnv)
 
 	if len(vc.Stores) > 0 {
-		fmt.Fprintf(&b, "Linked shared stores: %s\n", strings.Join(vc.Stores, ", "))
+		fmt.Fprintf(&b, "Linked shared stores: %s\n", strings.Join(store.StoreLinkNames(vc.Stores), ", "))
 	}
 	tomlDir := filepath.Dir(tomlPath)
 	lc, _ := config.LoadLocalConfig(tomlDir)
 	if len(lc.Stores) > 0 {
-		fmt.Fprintf(&b, "Linked personal stores: %s\n", strings.Join(lc.Stores, ", "))
+		fmt.Fprintf(&b, "Linked personal stores: %s\n", strings.Join(store.StoreLinkNames(lc.Stores), ", "))
 	}
 
 	s, err := store.Resolve(id)
@@ -135,7 +136,19 @@ func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 			} else if r.Optional {
 				fmt.Fprintf(&b, "  - %-28s optional, not set\n", name)
 			} else {
-				fmt.Fprintf(&b, "  ✗ %-28s MISSING\n", name)
+				hint := ""
+				// Check provider registry for setup guidance.
+				p := provider.FindByEnvVar(name)
+				if p == nil && r.Provider != "" {
+					p = provider.Get(r.Provider)
+				}
+				if p != nil {
+					hint = fmt.Sprintf(" [%s — %s]", p.DisplayName, p.SetupURL)
+					if p.FreeTier != "" {
+						hint = fmt.Sprintf(" [%s — %s, free: %s]", p.DisplayName, p.SetupURL, p.FreeTier)
+					}
+				}
+				fmt.Fprintf(&b, "  ✗ %-28s MISSING%s\n", name, hint)
 				missing++
 			}
 		}
@@ -271,7 +284,7 @@ func requireHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 
 var helpTool = mcp.NewTool("valet_help",
 	mcp.WithDescription("Get the full Valet CLI reference. Use this to discover commands for operations not covered by the other tools (team management, exports, CI/CD setup, environments, scopes, etc). All commands are run via the terminal."),
-	mcp.WithString("topic", mcp.Description("Optional topic: setup, secrets, running, environments, users, bots, stores, ai, security, or leave empty for full reference")),
+	mcp.WithString("topic", mcp.Description("Optional topic: setup, secrets, running, environments, users, bots, stores, providers, ai, security, or leave empty for full reference")),
 )
 
 func helpHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
