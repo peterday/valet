@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +14,10 @@ import (
 	"github.com/peterday/valet/internal/store"
 )
 
-var joinInviteFlag string
+var (
+	joinInviteFlag string
+	joinAsFlag     string
+)
 
 var joinCmd = &cobra.Command{
 	Use:   "join [git-url]",
@@ -22,21 +27,19 @@ var joinCmd = &cobra.Command{
   # Join a standalone store (clone from remote)
   valet join github:acme/api-secrets
 
+  # Join with a custom local name
+  valet join github:pday/shared-keys --as team-keys
+
   # Join an embedded store with an invite (from inside the cloned repo)
   valet join --invite AGE-SECRET-KEY-1XYZ...
 
   # Join a standalone store with an invite (clone + auto-access)
-  valet join github:acme/api-secrets --invite AGE-SECRET-KEY-1XYZ...
-
-  # Join a named store with an invite (already cloned)
-  valet join -s acme-secrets --invite AGE-SECRET-KEY-1XYZ...`,
+  valet join github:acme/api-secrets --invite AGE-SECRET-KEY-1XYZ...`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if joinInviteFlag != "" {
-			// If a URL is also provided, clone first then use invite.
 			if len(args) > 0 {
 				if err := joinRemoteStore(args[0]); err != nil {
-					// Ignore "already exists" — just means it's already cloned.
 					if !strings.Contains(err.Error(), "already exists") {
 						return err
 					}
@@ -59,8 +62,6 @@ func joinWithInvite(tempPrivKey string) error {
 		return err
 	}
 
-	// openStore respects --store flag, so this works for both
-	// embedded stores (current dir) and named stores (-s flag).
 	s, err := openStore()
 	if err != nil {
 		return fmt.Errorf("no store found — clone the repo first, or use -s <store-name>")
@@ -74,29 +75,7 @@ func joinWithInvite(tempPrivKey string) error {
 	}
 
 	fmt.Println("You're in!")
-
-	// Show what environments were granted.
-	project, _ := resolveProject(s)
-	scopes, _ := s.ListAllScopes(project)
-	envSet := make(map[string]bool)
-	for _, sc := range scopes {
-		for _, r := range sc.Recipients {
-			if r.PublicKey == id.PublicKey {
-				env := strings.SplitN(sc.Path, "/", 2)[0]
-				envSet[env] = true
-			}
-		}
-	}
-	if len(envSet) > 0 {
-		envs := make([]string, 0, len(envSet))
-		for e := range envSet {
-			envs = append(envs, e)
-		}
-		fmt.Printf("Access granted: %s\n", strings.Join(envs, ", "))
-	}
-
-	fmt.Println("\nRun your app:")
-	fmt.Println("  valet drive -- <command>")
+	showAccessibleSecrets(s, id.PublicKey)
 
 	return nil
 }
@@ -112,7 +91,11 @@ func joinRemoteStore(url string) error {
 		return err
 	}
 
-	name := storeNameFromURL(url)
+	// Use --as name if provided, otherwise derive from URL.
+	name := joinAsFlag
+	if name == "" {
+		name = storeNameFromURL(url)
+	}
 	storePath := filepath.Join(cfg.StoresDir, name)
 
 	if _, err := os.Stat(storePath); err == nil {
@@ -130,7 +113,20 @@ func joinRemoteStore(url string) error {
 
 	fmt.Printf("Cloning %s...\n", remote)
 	if err := store.Clone(remote, storePath); err != nil {
-		return fmt.Errorf("clone failed: %w", err)
+		// Clone failed — maybe pending GitHub invite. Try to accept.
+		if strings.Contains(remote, "github.com") {
+			if tryAcceptGitHubInvite(remote) {
+				// Retry clone after accepting.
+				fmt.Println("Retrying clone...")
+				if err := store.Clone(remote, storePath); err != nil {
+					return fmt.Errorf("clone failed after accepting invite: %w", err)
+				}
+			} else {
+				return fmt.Errorf("clone failed: %w\n\nIf you were invited, check your GitHub notifications or run:\n  gh api user/repository_invitations", err)
+			}
+		} else {
+			return fmt.Errorf("clone failed: %w", err)
+		}
 	}
 
 	s, err := store.Open(storePath, id)
@@ -162,18 +158,126 @@ func joinRemoteStore(url string) error {
 		}
 	}
 
-	projects, _ := s.ListProjects()
-	if len(projects) > 0 {
-		fmt.Println("\nProjects in this store:")
-		for _, p := range projects {
-			fmt.Printf("  %s\n", p.Slug)
+	showAccessibleSecrets(s, id.PublicKey)
+
+	return nil
+}
+
+// showAccessibleSecrets prints what the user can decrypt after joining.
+func showAccessibleSecrets(s *store.Store, publicKey string) {
+	project, err := resolveProjectForStore(s)
+	if err != nil {
+		return
+	}
+
+	scopes, err := s.ListAllScopes(project)
+	if err != nil || len(scopes) == 0 {
+		fmt.Println("\nNo scopes found. Ask an admin to grant you access:")
+		fmt.Println("  valet env grant <your-name> -e dev")
+		return
+	}
+
+	// Group secrets by env, only for scopes where this user is a recipient.
+	type envSecrets struct {
+		scopes  int
+		secrets []string
+	}
+	envMap := make(map[string]*envSecrets)
+
+	for _, sc := range scopes {
+		isRecipient := false
+		for _, r := range sc.Recipients {
+			if r.PublicKey == publicKey {
+				isRecipient = true
+				break
+			}
+		}
+		if !isRecipient {
+			continue
+		}
+
+		env := strings.SplitN(sc.Path, "/", 2)[0]
+		if envMap[env] == nil {
+			envMap[env] = &envSecrets{}
+		}
+		envMap[env].scopes++
+		envMap[env].secrets = append(envMap[env].secrets, sc.Secrets...)
+	}
+
+	if len(envMap) == 0 {
+		fmt.Println("\nYou're registered but don't have access to any secrets yet.")
+		fmt.Println("Ask an admin to grant you access:")
+		fmt.Println("  valet env grant <your-name> -e dev")
+		return
+	}
+
+	fmt.Println("\nSecrets you can access:")
+	for env, es := range envMap {
+		fmt.Printf("  %s: (%d scope(s), %d secret(s))\n", env, es.scopes, len(es.secrets))
+		for _, name := range es.secrets {
+			fmt.Printf("    %s\n", name)
 		}
 	}
 
-	fmt.Println("\nAsk an admin to grant you environment access:")
-	fmt.Println("  valet env grant <your-name> -e dev")
+	fmt.Println("\nLink to a project:")
+	fmt.Printf("  cd ~/code/my-project && valet link %s\n", s.Meta.Name)
+}
 
-	return nil
+// tryAcceptGitHubInvite checks for pending GitHub repo invitations and
+// accepts one matching the given remote URL. Returns true if accepted.
+func tryAcceptGitHubInvite(remote string) bool {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return false
+	}
+
+	// Extract org/repo from the remote URL.
+	repo := remote
+	repo = strings.TrimPrefix(repo, "git@github.com:")
+	repo = strings.TrimPrefix(repo, "https://github.com/")
+	repo = strings.TrimSuffix(repo, ".git")
+	if repo == "" {
+		return false
+	}
+
+	// List pending invitations.
+	out, err := exec.Command("gh", "api", "user/repository_invitations").Output()
+	if err != nil {
+		return false
+	}
+
+	var invitations []struct {
+		ID         int `json:"id"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := json.Unmarshal(out, &invitations); err != nil {
+		return false
+	}
+
+	for _, inv := range invitations {
+		if strings.EqualFold(inv.Repository.FullName, repo) {
+			fmt.Printf("Found pending invite for %s. Accepting...\n", repo)
+
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Print("Accept? [Y/n]: ")
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer != "" && answer != "y" && answer != "yes" {
+				return false
+			}
+
+			cmd := exec.Command("gh", "api", fmt.Sprintf("user/repository_invitations/%d", inv.ID), "-X", "PATCH")
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to accept invite: %v\n", err)
+				return false
+			}
+			fmt.Println("Accepted!")
+			return true
+		}
+	}
+
+	return false
 }
 
 var projectCmd = &cobra.Command{
@@ -257,6 +361,7 @@ func gitConfigValue(key string) (string, error) {
 
 func init() {
 	joinCmd.Flags().StringVar(&joinInviteFlag, "invite", "", "invite key (AGE-SECRET-KEY-...)")
+	joinCmd.Flags().StringVar(&joinAsFlag, "as", "", "custom local name for the store")
 	rootCmd.AddCommand(joinCmd)
 	projectCmd.AddCommand(projectCreateCmd)
 	projectCmd.AddCommand(projectListCmd)

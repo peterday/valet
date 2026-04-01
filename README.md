@@ -127,21 +127,46 @@ valet drive -- npm start                           # just works
 For secrets shared across repos, use a standalone git-backed store.
 
 ```bash
-# Alice
+# Alice creates and populates the store
 valet store create github:acme/api-secrets
 valet secret set DATADOG_API_KEY --value dd-key -s api-secrets
-valet user add bob --github bob-smith
-valet env grant bob -e dev -s api-secrets
-valet push
 
-# Bob
-valet join github:acme/api-secrets
-cd ~/code/api
-valet init --shared github:acme/api-secrets/api
-valet drive -- npm start
+# Alice adds Bob — fetches his SSH key, invites him to the GitHub repo
+valet user add bob --github bob-smith -s api-secrets
+valet env grant bob -e dev -s api-secrets
+valet push -s api-secrets
+→ Fetched SSH key for github.com/bob-smith
+→ Added user "bob"
+→ Invited bob-smith as collaborator on acme/api-secrets
+→
+→ Tell bob to run:
+→   valet join github:acme/api-secrets
 ```
 
-The URI `github:acme/api-secrets/api` means "the `api` project inside the `api-secrets` store on GitHub." If the store has only one project, the project part is optional.
+```bash
+# Bob joins — auto-accepts the GitHub invite if pending
+valet join github:acme/api-secrets
+→ Found pending invite for acme/api-secrets. Accepting...
+→ Accepted!
+→ Joined as "bob"
+→
+→ Secrets you can access:
+→   dev: (1 scope(s), 1 secret(s))
+→     DATADOG_API_KEY
+→
+→ Link to a project:
+→   cd ~/code/my-project && valet link api-secrets
+
+# Bob can rename the store locally if he wants
+valet join github:acme/api-secrets --as team-keys
+```
+
+```bash
+# Bob links and runs
+cd ~/code/api
+valet link api-secrets
+valet drive -- npm start
+```
 
 ### Adding teammates
 
@@ -150,17 +175,30 @@ Three ways to add someone, from easiest to most manual:
 **1. GitHub SSH key (easiest)** — Alice does everything. Bob does nothing.
 
 ```bash
-# Alice:
+# Alice (embedded store):
 valet user add bob --github bob-smith
 valet env grant bob -e dev
-git add . && git commit -m "grant bob" && git push   # embedded store
-# or: valet push                                      # team store
+git add . && git commit -m "grant bob" && git push
 
-# Bob:
-git pull && valet drive -- npm start                  # just works
+# Alice (team store — also invites Bob to the private repo):
+valet user add bob --github bob-smith -s api-secrets
+valet env grant bob -e dev -s api-secrets
+valet push -s api-secrets
+→ Invited bob-smith as collaborator on acme/api-secrets
+→
+→ Tell bob to run:
+→   valet join github:acme/api-secrets
+
+# Bob (embedded):
+git pull && valet drive -- npm start
+
+# Bob (team store):
+valet join github:acme/api-secrets              # auto-accepts GitHub invite
+cd ~/code/my-project && valet link api-secrets
+valet drive -- npm start
 ```
 
-Alice fetches Bob's public key from `github.com/bob-smith.keys` and encrypts secrets to it. Bob pulls and can decrypt immediately. Check if someone has SSH keys at `github.com/<username>.keys`.
+Alice fetches Bob's public key from `github.com/bob-smith.keys` and encrypts secrets to it. For team stores, valet also invites Bob as a GitHub collaborator on the private repo and shows Bob the exact join command. Check if someone has SSH keys at `github.com/<username>.keys`.
 
 **2. Invite** — For teammates without SSH keys on GitHub.
 
@@ -352,7 +390,8 @@ valet invite create -e dev -e staging --expires 3d     # multi-env, custom expir
 valet invite create -e dev --max-uses 5                # multi-use invite
 valet invite list                                      # list pending invites
 valet invite prune                                     # remove expired invites
-valet join <remote>                                    # clone shared store
+valet join <remote>                                    # clone shared store (auto-accepts GitHub invite)
+valet join <remote> --as <local-name>                  # clone with custom local name
 valet join --invite AGE-SECRET-KEY-...                 # join with invite (embedded)
 valet join <remote> --invite AGE-SECRET-KEY-...        # clone + join with invite
 valet push                                             # push to remote
@@ -371,8 +410,10 @@ valet bot revoke <name> [--rotate]                     # revoke + remove bot
 
 ```bash
 valet store create my-secrets                          # personal local store
-valet store create github:acme/secrets                 # team git-backed store
+valet store create github:acme/secrets                 # team git-backed store (auto-creates repo)
 valet store list                                       # list stores
+valet store delete my-secrets                          # delete a local store
+valet store delete my-secrets --force                  # skip confirmation
 ```
 
 ## Key Concepts
@@ -463,7 +504,10 @@ make test        # all tests
 - [x] `valet secret sync --to` — promote between stores
 - [x] Provider metadata, version history, rotation flags
 - [x] GitHub SSH key import
-- [ ] `valet invite` — invite teammates with a code
+- [x] `valet invite` — temp-key invites for teammates without SSH keys
+- [x] `valet join` — auto-accept GitHub invites, show accessible secrets, `--as` alias
+- [x] `valet user add --github` — auto-invite as GitHub collaborator
+- [x] `valet store delete` — clean up local stores
 - [ ] Provider automation — create/rotate keys via provider APIs
 - [ ] Cloud-backed stores with audit logs
 - [ ] Kubernetes operator
