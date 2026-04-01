@@ -8,11 +8,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/peterday/valet/internal/provider"
 )
 
 var updateCheckFlag bool
@@ -86,7 +88,15 @@ var updateCmd = &cobra.Command{
 		}
 		os.Chmod(binaryPath, 0755)
 
+		// On macOS, re-sign the binary to prevent Gatekeeper issues.
+		if runtime.GOOS == "darwin" {
+			exec.Command("codesign", "-s", "-", "-f", binaryPath).Run()
+		}
+
 		fmt.Printf("Updated to v%s (%s)\n", latest, binaryPath)
+
+		// Update provider registry (best-effort).
+		updateProviders()
 
 		// Check if the install location is in PATH.
 		installDir := filepath.Dir(binaryPath)
@@ -222,6 +232,33 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// updateProviders pulls the latest provider registry (best-effort).
+func updateProviders() {
+	defaultDir := provider.DefaultRegistryDir()
+	if _, err := os.Stat(filepath.Join(defaultDir, ".git")); os.IsNotExist(err) {
+		// Not cloned yet — clone it.
+		fmt.Println("Fetching provider registry...")
+		baseDir := provider.ProvidersBaseDir()
+		os.MkdirAll(baseDir, 0755)
+		cmd := exec.Command("git", "clone", "--depth", "1", provider.DefaultRegistry, defaultDir)
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not fetch providers: %v\n", err)
+			return
+		}
+		fmt.Println("Provider registry installed.")
+		return
+	}
+
+	// Already cloned — pull.
+	fmt.Println("Updating provider registry...")
+	cmd := exec.Command("git", "-C", defaultDir, "pull", "--ff-only")
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not update providers: %v\n", err)
+		return
+	}
+	fmt.Println("Provider registry updated.")
 }
 
 func init() {
