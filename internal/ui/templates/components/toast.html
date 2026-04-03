@@ -1,0 +1,13 @@
+{{define "toast"}}
+<div class="toast bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 shadow-lg text-sm text-white flex items-center gap-2 animate-slide-up"
+     style="animation: slideUp 200ms ease-out">
+  {{if eq .Type "success"}}
+    <span class="text-emerald-400">&#10003;</span>
+  {{else if eq .Type "error"}}
+    <span class="text-rose-400">&#10007;</span>
+  {{else}}
+    <span class="text-indigo-400">&#8226;</span>
+  {{end}}
+  <span>{{.Message}}</span>
+</div>
+{{end}}

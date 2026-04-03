@@ -1,0 +1,60 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Valet{{if .PageTitle}} — {{.PageTitle}}{{end}}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js"></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="bg-slate-900 text-slate-200 min-h-screen flex">
+  <!-- Sidebar -->
+  <aside class="w-56 bg-slate-950 border-r border-slate-800 flex flex-col min-h-screen shrink-0">
+    <div class="p-5 border-b border-slate-800">
+      <a href="/" class="flex items-center gap-2 text-white font-semibold text-lg">
+        <svg class="w-6 h-6 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+        Valet
+      </a>
+    </div>
+
+    <nav class="flex-1 p-3 space-y-1">
+      <a href="/stores" class="nav-link{{if eq .Page "stores"}} active{{end}}">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+        </svg>
+        Stores
+      </a>
+      <a href="/project" class="nav-link{{if eq .Page "project"}} active{{end}}">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+        </svg>
+        Project
+      </a>
+    </nav>
+
+    <div class="p-4 border-t border-slate-800 text-xs text-slate-500 space-y-1">
+      {{if .Identity}}
+      <div class="truncate" title="{{.Identity.PublicKey}}">
+        {{truncate .Identity.PublicKey 20}}
+      </div>
+      {{end}}
+      <div>v{{.Version}}</div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="flex-1 p-8 overflow-auto">
+    {{template "content" .}}
+  </main>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+</body>
+</html>
+{{end}}

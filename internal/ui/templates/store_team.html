@@ -1,0 +1,161 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  {{template "store_tabs" .}}
+
+  <div class="flex items-center justify-between mb-6">
+    <h2 class="text-lg font-medium text-white">Team Members</h2>
+    <button onclick="document.getElementById('add-user-form').classList.toggle('hidden')"
+            class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
+      + Add member
+    </button>
+  </div>
+
+  <!-- Add user form -->
+  <div id="add-user-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <form id="github-add-form" hx-post="/stores/{{.StoreName}}/users" hx-target="#github-add-result" hx-swap="innerHTML" class="space-y-3">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      <div class="flex gap-3 items-end">
+        <div class="flex-1">
+          <label class="block text-xs text-slate-400 mb-1">GitHub username</label>
+          <div class="flex items-center">
+            <span class="text-slate-500 text-sm mr-1">@</span>
+            <input type="text" name="github" placeholder="alice" autocomplete="off"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <span class="text-xs text-slate-600">All SSH keys will be fetched from GitHub</span>
+        </div>
+        <div class="w-36">
+          <label class="block text-xs text-slate-400 mb-1">Name (optional)</label>
+          <input type="text" name="user_name" placeholder="defaults to @" autocomplete="off"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors shrink-0">
+          Add
+        </button>
+      </div>
+      <div id="github-add-result"></div>
+    </form>
+
+    <div class="mt-3 pt-3 border-t border-slate-700/50">
+      <button onclick="document.getElementById('manual-add-form').classList.toggle('hidden'); this.classList.toggle('text-white')"
+              class="text-xs text-slate-500 hover:text-white transition-colors">
+        Or add manually with a public key &darr;
+      </button>
+      <form id="manual-add-form" method="POST" action="/stores/{{.StoreName}}/users" class="hidden space-y-3 mt-3">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <div class="flex gap-3">
+          <div class="flex-1">
+            <label class="block text-xs text-slate-400 mb-1">Name</label>
+            <input type="text" name="user_name" placeholder="alice" autocomplete="off"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div class="w-32">
+            <label class="block text-xs text-slate-400 mb-1">GitHub</label>
+            <input type="text" name="github" placeholder="optional" autocomplete="off"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Public key</label>
+          <input type="text" name="public_key" placeholder="age1... or ssh-ed25519 ..." autocomplete="off" spellcheck="false"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
+          Add
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {{if not .Matrix}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    No users in this store.
+  </div>
+  {{else}}
+  <div class="space-y-3">
+    {{range .Matrix}}
+    {{$row := .}}
+    <div class="bg-slate-800 rounded-lg border border-slate-700 p-4">
+      <!-- User header -->
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-white font-medium">{{.UserName}}</span>
+            {{if .IsYou}}<span class="text-xs bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded">you</span>{{end}}
+          </div>
+          {{if .GitHub}}
+          <div class="text-xs text-slate-500 mt-0.5">@{{.GitHub}}</div>
+          {{else}}
+          <form method="POST" action="/stores/{{$.StoreName}}/users/{{.UserName}}/update" class="flex items-center gap-1.5 mt-1">
+            <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+            <span class="text-xs text-slate-600">no GitHub linked</span>
+            <input type="text" name="github" placeholder="username" autocomplete="off"
+                   class="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs text-white placeholder-slate-600 w-24 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+            <button type="submit" class="text-xs text-indigo-400 hover:text-indigo-300">Link</button>
+          </form>
+          {{end}}
+        </div>
+        <div class="flex items-center gap-1.5">
+          {{if .GitHub}}
+          <form method="POST" action="/stores/{{$.StoreName}}/users/{{.UserName}}/refresh" class="inline">
+            <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+            <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
+                    title="Sync SSH keys from GitHub">
+              Refresh keys
+            </button>
+          </form>
+          {{end}}
+          <form method="POST" action="/stores/{{$.StoreName}}/users/{{.UserName}}/remove" class="inline"
+                onsubmit="return confirm('Remove {{.UserName}}? They will be revoked from all environments and affected secrets flagged for rotation.{{if .IsYou}} This is you — you will lose access.{{end}}')">
+            <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+            <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-rose-400 hover:bg-rose-600 hover:text-white transition-colors">
+              Remove
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Keys -->
+      <div class="mb-3">
+        <div class="text-xs text-slate-500 mb-1">{{.KeyCount}} key{{if gt .KeyCount 1}}s{{end}}</div>
+        <div class="space-y-1">
+          {{range .AllKeys}}
+          <div class="flex items-center gap-2 text-xs">
+            <span class="w-2 h-2 rounded-full {{if eq .Source "github"}}bg-emerald-500{{else if eq .Source "age-identity"}}bg-indigo-500{{else if eq .Source "ssh"}}bg-emerald-500{{else}}bg-slate-500{{end}} shrink-0"></span>
+            <span class="font-mono text-slate-600 truncate">{{truncate .Key 44}}</span>
+            {{if .Label}}<span class="text-slate-300">{{.Label}}</span>{{end}}
+            <span class="text-slate-600">{{if eq .Source "github"}}GitHub{{else if eq .Source "age-identity"}}age identity{{else if eq .Source "ssh"}}SSH{{else if .Source}}{{.Source}}{{end}}</span>
+          </div>
+          {{end}}
+        </div>
+      </div>
+
+      <!-- Environment access -->
+      <div class="flex gap-2 flex-wrap">
+        {{range .Cells}}
+        {{if .HasAccess}}
+        <button class="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
+                hx-post="/stores/{{$.StoreName}}/revoke"
+                hx-vals='{"_csrf":"{{$.CSRFToken}}","user":"{{$row.UserName}}","env":"{{.Env}}"}'
+                hx-confirm="Revoke {{$row.UserName}} from {{.Env}}? Secrets will be flagged for rotation."
+                hx-on::after-request="window.location.reload()"
+                title="Click to revoke {{.Env}}">
+          {{.Env}} &#10003;
+        </button>
+        {{else}}
+        <button class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-500 hover:bg-emerald-500/20 hover:text-emerald-400 transition-colors"
+                hx-post="/stores/{{$.StoreName}}/grant"
+                hx-vals='{"_csrf":"{{$.CSRFToken}}","user":"{{$row.UserName}}","env":"{{.Env}}"}'
+                hx-on::after-request="window.location.reload()"
+                title="Grant {{.Env}} access">
+          {{.Env}} &#10007;
+        </button>
+        {{end}}
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

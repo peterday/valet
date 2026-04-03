@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"github.com/peterday/valet/internal/crypto"
 	"github.com/peterday/valet/internal/domain"
 	"github.com/peterday/valet/internal/identity"
 )
@@ -42,7 +43,7 @@ func (s *Store) CreateInvite(projectSlug string, envs []string, expiry time.Dura
 	createdBy := s.Identity.PublicKey
 	users, _ := s.ListUsers()
 	for _, u := range users {
-		if u.PublicKey == s.Identity.PublicKey {
+		if u.HasKey(s.Identity.PublicKey) {
 			createdBy = u.Name
 			break
 		}
@@ -385,41 +386,5 @@ func decryptVaultWithIdentity(data []byte, id age.Identity) (*domain.VaultConten
 
 // encryptVaultContent encrypts vault content to the given recipient keys.
 func encryptVaultContent(content *domain.VaultContent, recipientKeys []string) ([]byte, error) {
-	// Import from crypto package.
-	plaintext, err := json.MarshalIndent(content, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-
-	var recipients []age.Recipient
-	for _, k := range recipientKeys {
-		k = strings.TrimSpace(k)
-		if k == "" {
-			continue
-		}
-		r, err := age.ParseX25519Recipient(k)
-		if err != nil {
-			// Try SSH.
-			rr, sshErr := age.ParseRecipients(strings.NewReader(k))
-			if sshErr != nil {
-				return nil, fmt.Errorf("parsing recipient %q: %w", k, err)
-			}
-			recipients = append(recipients, rr...)
-			continue
-		}
-		recipients = append(recipients, r)
-	}
-
-	var buf bytes.Buffer
-	w, err := age.Encrypt(&buf, recipients...)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.Write(plaintext); err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return crypto.EncryptVault(content, recipientKeys)
 }

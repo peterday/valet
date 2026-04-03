@@ -1,0 +1,106 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  <h1 class="text-2xl font-semibold text-white mb-6">Project</h1>
+
+  {{if not .HasProject}}
+  <!-- No project selected -->
+  <div class="bg-slate-800 rounded-lg border border-slate-700 p-8">
+    <p class="text-slate-400 mb-4">Open a project folder to see its requirements, resolution, and setup.</p>
+    <form hx-post="/project/select" hx-swap="none" hx-on::after-request="window.location='/project'">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      <div class="flex gap-3">
+        <input type="text" name="path" placeholder="/path/to/project"
+               value="{{.ProjectDir}}"
+               class="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
+          Open
+        </button>
+      </div>
+    </form>
+  </div>
+  {{else}}
+  <!-- Project header -->
+  <div class="flex items-center gap-4 mb-6">
+    <div>
+      <span class="text-sm text-slate-400">Project:</span>
+      <span class="font-mono text-white ml-1">{{.ProjectName}}</span>
+    </div>
+    <div>
+      <span class="text-sm text-slate-400">Store:</span>
+      <span class="font-mono text-white ml-1">{{.StoreName}}</span>
+    </div>
+  </div>
+
+  <!-- Sub-nav -->
+  <div class="flex gap-4 mb-6 border-b border-slate-700 text-sm">
+    <a href="/project?env={{.ActiveEnv}}" class="pb-2 border-b-2 {{if eq .Tab "requirements"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">Requirements</a>
+    <a href="/project/resolution?env={{.ActiveEnv}}" class="pb-2 border-b-2 {{if eq .Tab "resolution"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">Resolution</a>
+    <a href="/project/setup" class="pb-2 border-b-2 {{if eq .Tab "setup"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">Setup</a>
+    <a href="/project/links" class="pb-2 border-b-2 {{if eq .Tab "links"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">Linked Stores</a>
+  </div>
+
+  <!-- Environment selector -->
+  {{if .Environments}}
+  <div class="flex gap-2 mb-6">
+    {{range .Environments}}
+    <a href="/project?env={{.}}"
+       class="px-3 py-1.5 rounded-md text-sm transition-colors
+         {{if eq . $.ActiveEnv}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white{{end}}">
+      {{.}}
+    </a>
+    {{end}}
+  </div>
+  {{end}}
+
+  <!-- Requirements table -->
+  {{if not .Requirements}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    <p>No requirements declared.</p>
+    <p class="text-sm mt-1">Use <code class="text-indigo-400">valet require &lt;KEY&gt;</code> to declare what secrets this project needs.</p>
+  </div>
+  {{else}}
+  <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+          <th class="text-left p-4 w-8">Status</th>
+          <th class="text-left p-4">Secret</th>
+          <th class="text-left p-4">Provider</th>
+          <th class="text-left p-4">Description</th>
+          <th class="text-left p-4">Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Requirements}}
+        <tr class="border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors">
+          <td class="p-4">
+            {{if eq .Status "ok"}}
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" title="Configured"></span>
+            {{else if eq .Status "missing"}}
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" title="Missing"></span>
+            {{else}}
+              <span class="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block" title="Optional / not set"></span>
+            {{end}}
+          </td>
+          <td class="p-4 font-mono text-sm text-white">
+            {{.Key}}
+            {{if .Optional}}<span class="text-xs text-slate-500 ml-1">(optional)</span>{{end}}
+          </td>
+          <td class="p-4">
+            {{if .Provider}}
+            <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400">{{.Provider}}</span>
+            {{else}}
+            <span class="text-slate-500">—</span>
+            {{end}}
+          </td>
+          <td class="p-4 text-sm text-slate-400">{{.Description}}</td>
+          <td class="p-4 text-sm {{if eq .Status "missing"}}text-rose-400{{else}}text-slate-400{{end}}">{{.Source}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+  {{end}}
+</div>
+{{end}}

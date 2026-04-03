@@ -1,0 +1,28 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  {{template "store_tabs" .}}
+
+  {{if not .Items}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    No secrets found.
+  </div>
+  {{else}}
+  <div class="space-y-4">
+    {{range .Items}}
+    <div class="bg-slate-800 rounded-lg border border-slate-700 p-4">
+      <h3 class="font-mono text-sm text-white font-medium mb-3">{{.Key}}</h3>
+      <div class="space-y-2 ml-4">
+        {{range .Sources}}
+        <div class="flex items-center gap-4 text-sm">
+          <span class="font-mono text-indigo-400 w-40 shrink-0">{{.StoreName}}/{{.ScopePath}}</span>
+          <span class="font-mono text-slate-500">{{.Masked}}</span>
+          <span class="text-slate-500 text-xs">{{.UpdatedAt}}</span>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

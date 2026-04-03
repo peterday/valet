@@ -1,0 +1,177 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  {{template "store_tabs" .}}
+
+  <!-- Environment pills + management -->
+  <div class="flex items-center gap-4 mb-6">
+    <div class="flex gap-2 flex-wrap">
+      {{range .Environments}}
+      <a href="/stores/{{$.StoreName}}/environments?env={{.}}"
+         class="px-3 py-1.5 rounded-md text-sm transition-colors
+           {{if eq . $.ActiveEnv}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white{{end}}">
+        {{.}}
+      </a>
+      {{end}}
+    </div>
+
+    <!-- Create / Clone buttons -->
+    <div class="flex gap-2 ml-auto">
+      <button onclick="document.getElementById('create-env-form').classList.toggle('hidden')"
+              class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
+        + New
+      </button>
+      {{if .ActiveEnv}}
+      <button onclick="document.getElementById('clone-env-form').classList.toggle('hidden')"
+              class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
+        Clone {{.ActiveEnv}}
+      </button>
+      <form method="POST" action="/stores/{{.StoreName}}/environments/delete" class="inline"
+            onsubmit="return confirm('Delete environment {{.ActiveEnv}}? This will remove all secrets and access in this environment.')">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <input type="hidden" name="env_name" value="{{.ActiveEnv}}">
+        <button type="submit" class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-rose-400 hover:bg-rose-600 hover:text-white transition-colors border border-slate-700">
+          Delete {{.ActiveEnv}}
+        </button>
+      </form>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- Create env form (hidden by default) -->
+  <div id="create-env-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreName}}/environments/create">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      <div class="flex-1">
+        <label class="block text-xs text-slate-400 mb-1">Environment name</label>
+        <input type="text" name="env_name" placeholder="staging"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
+        Create
+      </button>
+    </form>
+  </div>
+
+  <!-- Clone env form (hidden by default) -->
+  <div id="clone-env-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreName}}/environments/clone">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      <input type="hidden" name="source_env" value="{{.ActiveEnv}}">
+      <div class="flex-1">
+        <label class="block text-xs text-slate-400 mb-1">New environment name (cloning from <span class="text-white">{{.ActiveEnv}}</span>)</label>
+        <input type="text" name="target_env" placeholder="staging"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div class="flex items-center gap-2 self-end pb-2">
+        <input type="checkbox" name="copy_users" id="clone-copy-users" checked
+               class="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
+        <label for="clone-copy-users" class="text-xs text-slate-400">Copy user access</label>
+      </div>
+      <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors self-end">
+        Clone
+      </button>
+    </form>
+  </div>
+
+  {{if .ActiveEnv}}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Users with access -->
+    <div>
+      <h2 class="text-lg font-medium text-white mb-4">
+        Users
+        <span class="text-sm text-slate-400 font-normal ml-1">{{.UserCount}} total</span>
+      </h2>
+      <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+              <th class="text-left p-3">User</th>
+              <th class="text-center p-3">Access</th>
+              <th class="text-right p-3">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Users}}
+            <tr class="border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors">
+              <td class="p-3">
+                <span class="text-sm text-white">{{.UserName}}</span>
+              </td>
+              <td class="text-center p-3">
+                {{if .HasAccess}}
+                <span class="text-emerald-400">&#10003;</span>
+                {{else}}
+                <span class="text-slate-600">&#10007;</span>
+                {{end}}
+              </td>
+              <td class="text-right p-3">
+                {{if .HasAccess}}
+                <form method="POST" action="/stores/{{$.StoreName}}/revoke" class="inline"
+                      onsubmit="return confirm('Revoke {{.UserName}} from {{$.ActiveEnv}}? Secrets will be flagged for rotation.')">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="user" value="{{.UserName}}">
+                  <input type="hidden" name="env" value="{{$.ActiveEnv}}">
+                  <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-rose-600 hover:text-white transition-colors">
+                    Revoke
+                  </button>
+                </form>
+                {{else}}
+                <form method="POST" action="/stores/{{$.StoreName}}/grant" class="inline">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="user" value="{{.UserName}}">
+                  <input type="hidden" name="env" value="{{$.ActiveEnv}}">
+                  <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-emerald-600 hover:text-white transition-colors">
+                    Grant
+                  </button>
+                </form>
+                {{end}}
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Secrets in this env -->
+    <div>
+      <h2 class="text-lg font-medium text-white mb-4">
+        Secrets
+        <span class="text-sm text-slate-400 font-normal ml-1">{{.SecretCount}} total</span>
+      </h2>
+      {{if not .Secrets}}
+      <div class="bg-slate-800 rounded-lg border border-slate-700 p-6 text-center text-slate-400 text-sm">
+        No secrets in this environment.
+      </div>
+      {{else}}
+      <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+              <th class="text-left p-3">Secret</th>
+              <th class="text-left p-3">Provider</th>
+              <th class="text-left p-3">Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Secrets}}
+            <tr class="border-b border-slate-700/50">
+              <td class="p-3 font-mono text-sm text-white">{{.Key}}</td>
+              <td class="p-3">
+                {{if .Provider}}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400">{{.Provider}}</span>
+                {{else}}
+                <span class="text-slate-500">&mdash;</span>
+                {{end}}
+              </td>
+              <td class="p-3 text-xs text-slate-400">{{.UpdatedAt}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}

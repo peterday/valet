@@ -1,0 +1,93 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  {{template "store_tabs" .}}
+
+  <!-- Active invites -->
+  <div class="mb-8">
+    <h2 class="text-lg font-medium text-white mb-4">Active Invites</h2>
+
+    {{if not .Invites}}
+    <div class="bg-slate-800 rounded-lg p-6 text-center text-slate-400 text-sm">
+      No active invites.
+    </div>
+    {{else}}
+    <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+            <th class="text-left p-4">ID</th>
+            <th class="text-left p-4">Environments</th>
+            <th class="text-left p-4">Created By</th>
+            <th class="text-left p-4">Expires</th>
+            <th class="text-left p-4">Uses</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Invites}}
+          <tr class="border-b border-slate-700/50">
+            <td class="p-4 font-mono text-xs text-white">{{truncate .ID 8}}</td>
+            <td class="p-4">
+              <div class="flex gap-1.5">
+                {{range .Environments}}
+                <span class="text-xs bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{{.}}</span>
+                {{end}}
+              </div>
+            </td>
+            <td class="p-4 text-sm text-slate-400">{{.CreatedBy}}</td>
+            <td class="p-4 text-sm text-slate-400">{{timeAgo .ExpiresAt}}</td>
+            <td class="p-4 text-sm text-slate-400">{{.Uses}}/{{.MaxUses}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-3">
+      <button class="text-xs text-slate-400 hover:text-white transition-colors"
+              hx-post="/stores/{{.StoreName}}/invites/expired/prune"
+              hx-vals='{"_csrf":"{{.CSRFToken}}"}'
+              hx-target="#prune-result"
+              hx-swap="innerHTML">
+        Prune expired invites
+      </button>
+      <span id="prune-result" class="ml-2"></span>
+    </div>
+    {{end}}
+  </div>
+
+  <!-- Create invite form -->
+  <div class="bg-slate-800 rounded-lg border border-slate-700 p-6">
+    <h2 class="text-lg font-medium text-white mb-4">Create Invite</h2>
+    <form hx-post="/stores/{{.StoreName}}/invites" hx-target="#invite-result" hx-swap="innerHTML">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm text-slate-400 mb-1">Environments (comma-separated)</label>
+          <input type="text" name="environments" placeholder="dev, staging"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div class="flex gap-4">
+          <div class="flex-1">
+            <label class="block text-sm text-slate-400 mb-1">Expiry</label>
+            <select name="expiry" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="24h">24 hours</option>
+              <option value="48h" selected>48 hours</option>
+              <option value="168h">7 days</option>
+            </select>
+          </div>
+          <div class="flex-1">
+            <label class="block text-sm text-slate-400 mb-1">Max uses</label>
+            <input type="number" name="max_uses" value="1" min="1" max="100"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
+          Create invite
+        </button>
+      </div>
+    </form>
+    <div id="invite-result" class="mt-4"></div>
+  </div>
+</div>
+{{end}}

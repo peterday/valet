@@ -1,0 +1,416 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  {{template "store_tabs" .}}
+
+  <!-- Environment pills -->
+  <div class="flex items-center gap-2 mb-6">
+    <div class="flex gap-2 flex-wrap">
+      <a href="/stores/{{.StoreName}}?env=all"
+         class="px-3 py-1.5 rounded-md text-sm transition-colors bg-indigo-500 text-white">
+        All
+      </a>
+      {{range .Environments}}
+      <a href="/stores/{{$.StoreName}}?env={{.}}"
+         class="px-3 py-1.5 rounded-md text-sm transition-colors bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white">
+        {{.}}
+      </a>
+      {{end}}
+    </div>
+    <button onclick="document.getElementById('add-secret-form').classList.toggle('hidden')"
+            class="ml-auto text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
+      + Add secret
+    </button>
+  </div>
+
+  <!-- Add secret form -->
+  <div id="add-secret-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <!-- Step 1: Provider picker -->
+    <div class="flex gap-3 mb-3">
+      <div class="flex-1">
+        <label class="block text-xs text-slate-400 mb-1">Source</label>
+        <select id="provider-select" onchange="onProviderChange()"
+                class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">Manual (custom key)</option>
+        </select>
+      </div>
+      <div class="w-40">
+        <label class="block text-xs text-slate-400 mb-1">Environment</label>
+        <select id="add-env-select"
+                class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="*">* (all environments)</option>
+          {{range .Environments}}
+          <option value="{{.}}">{{.}}</option>
+          {{end}}
+        </select>
+      </div>
+    </div>
+
+    <!-- Provider info banner (hidden by default) -->
+    <div id="provider-info" class="hidden mb-3 bg-slate-900 rounded-md p-3 border border-slate-700/50">
+      <div class="flex items-center justify-between">
+        <div>
+          <span id="provider-display-name" class="text-sm text-white font-medium"></span>
+          <span id="provider-category" class="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 ml-2"></span>
+        </div>
+        <a id="provider-setup-link" href="#" target="_blank" rel="noopener"
+           class="text-xs text-indigo-400 hover:text-indigo-300 hidden">
+          Get a key &rarr;
+        </a>
+      </div>
+      <div id="provider-free-tier" class="text-xs text-emerald-400 mt-1 hidden"></div>
+    </div>
+
+    <!-- Provider env vars (shown when provider selected) -->
+    <div id="provider-keys" class="hidden mb-3">
+      <label class="block text-xs text-slate-400 mb-1">Keys from this provider</label>
+      <div id="provider-keys-list" class="space-y-2"></div>
+    </div>
+
+    <!-- Manual key form (shown when Manual selected) -->
+    <div id="manual-form">
+      <form method="POST" action="/stores/{{.StoreName}}/secrets" class="space-y-3">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <input type="hidden" name="env" id="manual-env" value="*">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Key</label>
+          <input type="text" name="key" placeholder="MY_SECRET_KEY" autocomplete="off"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Value</label>
+          <input type="text" name="value" placeholder="paste value here" autocomplete="off" spellcheck="false"
+                 class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
+          Save
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+  var providers = {{safeJS .ProvidersJSON}};
+
+  // Populate provider dropdown
+  (function() {
+    var sel = document.getElementById('provider-select');
+    var byCategory = {};
+    providers.forEach(function(p) {
+      var cat = p.category || 'other';
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(p);
+    });
+    Object.keys(byCategory).sort().forEach(function(cat) {
+      var group = document.createElement('optgroup');
+      group.label = cat.charAt(0).toUpperCase() + cat.slice(1);
+      byCategory[cat].forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.displayName + (p.envVars.length > 1 ? ' (' + p.envVars.length + ' keys)' : '');
+        group.appendChild(opt);
+      });
+      sel.appendChild(group);
+    });
+  })();
+
+  function onProviderChange() {
+    var name = document.getElementById('provider-select').value;
+    var info = document.getElementById('provider-info');
+    var keysDiv = document.getElementById('provider-keys');
+    var keysList = document.getElementById('provider-keys-list');
+    var manualForm = document.getElementById('manual-form');
+    var envSel = document.getElementById('add-env-select');
+
+    // Sync env to manual form
+    document.getElementById('manual-env').value = envSel.value;
+
+    if (!name) {
+      // Manual mode
+      info.classList.add('hidden');
+      keysDiv.classList.add('hidden');
+      manualForm.classList.remove('hidden');
+      return;
+    }
+
+    var p = providers.find(function(x) { return x.name === name; });
+    if (!p) return;
+
+    // Show provider info
+    info.classList.remove('hidden');
+    document.getElementById('provider-display-name').textContent = p.displayName;
+    document.getElementById('provider-category').textContent = p.category;
+
+    var setupLink = document.getElementById('provider-setup-link');
+    if (p.setupUrl) {
+      setupLink.href = p.setupUrl;
+      setupLink.classList.remove('hidden');
+    } else {
+      setupLink.classList.add('hidden');
+    }
+
+    var freeTier = document.getElementById('provider-free-tier');
+    if (p.freeTier) {
+      freeTier.textContent = p.freeTier;
+      freeTier.classList.remove('hidden');
+    } else {
+      freeTier.classList.add('hidden');
+    }
+
+    // Show env var forms
+    manualForm.classList.add('hidden');
+    keysDiv.classList.remove('hidden');
+    keysList.innerHTML = '';
+
+    p.envVars.forEach(function(ev) {
+      var div = document.createElement('div');
+      div.innerHTML =
+        '<form method="POST" action="/stores/{{.StoreName}}/secrets" class="flex items-end gap-2">' +
+          '<input type="hidden" name="_csrf" value="{{.CSRFToken}}">' +
+          '<input type="hidden" name="provider" value="' + p.name + '">' +
+          '<input type="hidden" name="env" value="' + envSel.value + '">' +
+          '<input type="hidden" name="key" value="' + ev.name + '">' +
+          '<div class="flex-1">' +
+            '<label class="block text-xs text-slate-400 mb-1">' +
+              '<span class="font-mono text-white">' + ev.name + '</span>' +
+              (ev.prefix ? ' <span class="text-slate-600">format: ' + ev.prefix + '...</span>' : '') +
+            '</label>' +
+            '<input type="text" name="value" placeholder="' + (ev.prefix ? ev.prefix + '...' : 'paste value') + '" autocomplete="off" spellcheck="false" ' +
+              'class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500">' +
+          '</div>' +
+          '<button type="submit" class="px-3 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors shrink-0">Save</button>' +
+        '</form>';
+      keysList.appendChild(div);
+    });
+  }
+
+  // Keep env in sync
+  document.getElementById('add-env-select').addEventListener('change', function() {
+    document.getElementById('manual-env').value = this.value;
+    // Re-render provider keys with new env
+    if (document.getElementById('provider-select').value) {
+      onProviderChange();
+    }
+  });
+  </script>
+
+  {{if not .Groups}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    No secrets found.
+  </div>
+  {{else}}
+  <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+          <th class="text-left p-4 w-8"></th>
+          <th class="text-left p-4">Secret</th>
+          <th class="text-left p-4">Provider</th>
+          <th class="text-left p-4">Environments</th>
+          <th class="text-left p-4">Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range $idx, $group := .Groups}}
+        <!-- Summary row -->
+        <tr class="border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors cursor-pointer"
+            onclick="toggleGroup('group-{{$idx}}', this)">
+          <td class="p-4 text-slate-500">
+            <span class="expand-icon text-xs">&#9654;</span>
+          </td>
+          <td class="p-4 font-mono text-sm text-white">{{.Key}}</td>
+          <td class="p-4">
+            {{if .Provider}}
+            <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400">{{.Provider}}</span>
+            {{else}}
+            <span class="text-slate-500">&mdash;</span>
+            {{end}}
+          </td>
+          <td class="p-4">
+            <div class="flex gap-1.5 flex-wrap">
+              {{range .PresentIn}}
+              <span class="text-xs bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">{{.}}</span>
+              {{end}}
+              {{range .LockedIn}}
+              <span class="text-xs bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">{{.}} &#128274;</span>
+              {{end}}
+              {{range .RotationIn}}
+              <span class="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">{{.}} &#8635;</span>
+              {{end}}
+              {{range .MissingIn}}
+              <span class="text-xs bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded">{{.}}</span>
+              {{end}}
+            </div>
+          </td>
+          <td class="p-4 text-sm text-slate-500">{{.LatestTime}}</td>
+        </tr>
+        <!-- Detail rows (hidden by default) -->
+        {{range .EnvRows}}
+        <tr class="group-{{$idx}} hidden bg-slate-850 border-b border-slate-700/20">
+          <td class="py-2 px-4"></td>
+          <td class="py-2 px-4" colspan="2">
+            <div class="flex items-center gap-2 ml-4">
+              {{if .Missing}}
+              <span class="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span>
+              <span class="text-sm text-slate-500">{{.Env}}</span>
+              <span class="text-xs text-rose-400 ml-1">missing</span>
+              {{else if .Locked}}
+              <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+              <span class="text-sm text-slate-300">{{.Env}}</span>
+              <svg class="w-3.5 h-3.5 text-emerald-400 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+              <span class="text-xs text-slate-400 ml-0.5">no access</span>
+              {{else}}
+              <span class="w-2 h-2 rounded-full {{if .NeedsRotation}}bg-amber-500 animate-pulse{{else}}bg-emerald-500{{end}} shrink-0"></span>
+              <span class="text-sm text-slate-300">{{.Env}}</span>
+              {{if .NeedsRotation}}<span class="text-xs text-amber-400 ml-1">needs rotation</span>{{end}}
+              <span id="mask-{{$group.Key}}-{{.Env}}" class="font-mono text-xs text-slate-500 ml-2">{{.Masked}}</span>
+              <span id="reveal-{{$group.Key}}-{{.Env}}" class="hidden ml-2"></span>
+              <button class="text-xs text-slate-500 hover:text-white ml-1 transition-colors" title="Copy"
+                      onclick="event.stopPropagation(); copySecret('{{$.StoreName}}', '{{$group.Key}}', '{{.Scope}}', '{{$.CSRFToken}}')">
+                <svg class="w-3.5 h-3.5 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              </button>
+              <button class="reveal-btn text-xs text-slate-500 hover:text-white ml-0.5 transition-colors" title="Reveal"
+                      onclick="event.stopPropagation(); revealSecret('{{$.StoreName}}', '{{$group.Key}}', '{{.Env}}', '{{.Scope}}', '{{$.CSRFToken}}', this)">
+                <svg class="w-3.5 h-3.5 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+              {{end}}
+            </div>
+          </td>
+          <td class="py-2 px-4 text-xs text-slate-600">
+            {{if not .Missing}}{{.UpdatedAt}} &middot; {{.UpdatedBy}}{{end}}
+          </td>
+          <td class="py-2 px-4 text-right">
+            {{if .Locked}}
+            <!-- No actions for locked envs -->
+            {{else if .Missing}}
+            <!-- Set value for missing env -->
+            <div class="inline-action" data-key="{{$group.Key}}" data-env="{{.Env}}" data-provider="{{$group.Provider}}" data-scope="">
+              <div class="action-buttons flex items-center justify-end gap-1.5">
+                <button class="text-xs px-2 py-1 rounded bg-slate-700 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-colors"
+                        onclick="event.stopPropagation(); showInlineSet(this.closest('.inline-action'))">
+                  Set
+                </button>
+              </div>
+              <form class="action-form hidden flex items-center gap-1.5" method="POST"
+                    action="/stores/{{$.StoreName}}/secrets/{{$group.Key}}/set"
+                    onclick="event.stopPropagation()">
+                <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                <input type="hidden" name="env" value="{{.Env}}">
+                <input type="hidden" name="scope" value="">
+                <input type="hidden" name="provider" value="{{$group.Provider}}">
+                <input type="text" name="value" placeholder="value..." autocomplete="off" spellcheck="false"
+                       class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white placeholder-slate-600 w-48 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                <button type="submit" class="text-xs px-2 py-1 rounded bg-indigo-500 text-white hover:bg-indigo-600 transition-colors">Save</button>
+                <button type="button" onclick="hideInlineSet(this.closest('.inline-action'))" class="text-xs text-slate-500 hover:text-white">&times;</button>
+              </form>
+            </div>
+            {{else}}
+            <!-- Actions for existing env -->
+            <div class="inline-action" data-key="{{$group.Key}}" data-env="{{.Env}}" data-provider="{{$group.Provider}}" data-scope="{{.Scope}}">
+              <div class="action-buttons flex items-center justify-end gap-1.5">
+                <button class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
+                        onclick="event.stopPropagation(); showInlineSet(this.closest('.inline-action'))">
+                  Edit
+                </button>
+                <form method="POST" action="/stores/{{$.StoreName}}/secrets/{{$group.Key}}/delete" class="inline"
+                      onsubmit="event.stopPropagation(); return confirm('Delete {{$group.Key}} from {{.Env}}?')">
+                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                  <input type="hidden" name="scope" value="{{.Scope}}">
+                  <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-rose-400 hover:bg-rose-600 hover:text-white transition-colors">
+                    Del
+                  </button>
+                </form>
+              </div>
+              <form class="action-form hidden flex items-center gap-1.5" method="POST"
+                    action="/stores/{{$.StoreName}}/secrets/{{$group.Key}}/set"
+                    onclick="event.stopPropagation()">
+                <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                <input type="hidden" name="env" value="{{.Env}}">
+                <input type="hidden" name="scope" value="{{.Scope}}">
+                <input type="hidden" name="provider" value="{{$group.Provider}}">
+                <input type="text" name="value" placeholder="new value..." autocomplete="off" spellcheck="false"
+                       class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-white placeholder-slate-600 w-48 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                <button type="submit" class="text-xs px-2 py-1 rounded bg-indigo-500 text-white hover:bg-indigo-600 transition-colors">Save</button>
+                <button type="button" onclick="hideInlineSet(this.closest('.inline-action'))" class="text-xs text-slate-500 hover:text-white">&times;</button>
+              </form>
+            </div>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+</div>
+
+<script>
+function toggleGroup(cls, summaryRow) {
+  var rows = document.querySelectorAll('.' + cls);
+  var icon = summaryRow.querySelector('.expand-icon');
+  var expanded = rows.length > 0 && !rows[0].classList.contains('hidden');
+  rows.forEach(function(r) { r.classList.toggle('hidden'); });
+  icon.innerHTML = expanded ? '&#9654;' : '&#9660;';
+}
+
+function copySecret(store, key, scope, csrf) {
+  fetch('/stores/' + store + '/secrets/' + encodeURIComponent(key) + '/reveal', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: '_csrf=' + encodeURIComponent(csrf) + '&scope=' + encodeURIComponent(scope)
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(html) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var val = tmp.textContent.trim();
+    navigator.clipboard.writeText(val).then(function() { showToast('Copied to clipboard'); });
+  });
+}
+
+function revealSecret(store, key, env, scope, csrf, btn) {
+  var maskEl = document.getElementById('mask-' + key + '-' + env);
+  var revealEl = document.getElementById('reveal-' + key + '-' + env);
+
+  // If already revealed, just toggle back
+  if (!revealEl.classList.contains('hidden')) {
+    revealEl.classList.add('hidden');
+    revealEl.innerHTML = '';
+    maskEl.classList.remove('hidden');
+    btn.style.opacity = '';
+    return;
+  }
+
+  fetch('/stores/' + store + '/secrets/' + encodeURIComponent(key) + '/reveal', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: '_csrf=' + encodeURIComponent(csrf) + '&scope=' + encodeURIComponent(scope)
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(html) {
+    maskEl.classList.add('hidden');
+    revealEl.innerHTML = html;
+    revealEl.classList.remove('hidden');
+    btn.style.opacity = '1';
+
+    // Auto-hide after 30s
+    setTimeout(function() {
+      revealEl.classList.add('hidden');
+      revealEl.innerHTML = '';
+      maskEl.classList.remove('hidden');
+      btn.style.opacity = '';
+    }, 30000);
+  });
+}
+
+function showInlineSet(el) {
+  el.querySelector('.action-buttons').classList.add('hidden');
+  el.querySelector('.action-form').classList.remove('hidden');
+  el.querySelector('input[name=value]').focus();
+}
+function hideInlineSet(el) {
+  el.querySelector('.action-form').classList.add('hidden');
+  el.querySelector('.action-buttons').classList.remove('hidden');
+}
+</script>
+{{end}}
