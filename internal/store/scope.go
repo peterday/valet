@@ -33,22 +33,34 @@ func (s *Store) CreateScope(projectSlug, scopePath string) error {
 		return err
 	}
 
-	// The creator is the first recipient.
+	// The creator is the first recipient. Add all their keys.
 	manifest := &domain.Manifest{
-		Secrets: []string{},
-		Recipients: []domain.ManifestRecipient{
-			{Name: s.Identity.PublicKey, PublicKey: s.Identity.PublicKey},
-		},
-		UpdatedAt: time.Now().UTC(),
+		Secrets:    []string{},
+		Recipients: []domain.ManifestRecipient{},
+		UpdatedAt:  time.Now().UTC(),
 	}
 
-	// Try to use a friendly name from the users directory.
+	creatorName := s.Identity.PublicKey
 	users, _ := s.ListUsers()
 	for _, u := range users {
-		if u.PublicKey == s.Identity.PublicKey {
-			manifest.Recipients[0].Name = u.Name
+		if u.HasKey(s.Identity.PublicKey) {
+			creatorName = u.Name
+			// Add all of the creator's keys.
+			for _, key := range u.AllKeys() {
+				manifest.Recipients = append(manifest.Recipients, domain.ManifestRecipient{
+					Name:      u.Name,
+					PublicKey: key,
+				})
+			}
 			break
 		}
+	}
+	if len(manifest.Recipients) == 0 {
+		// User not found in store — just add their identity key.
+		manifest.Recipients = append(manifest.Recipients, domain.ManifestRecipient{
+			Name:      creatorName,
+			PublicKey: s.Identity.PublicKey,
+		})
 	}
 
 	if err := s.writeManifest(slug, scopePath, manifest); err != nil {
@@ -139,17 +151,20 @@ func (s *Store) AddRecipient(projectSlug, scopePath, userName string) error {
 		return err
 	}
 
-	// Check if already a recipient.
+	// Check if already a recipient (by name).
 	for _, r := range manifest.Recipients {
 		if r.Name == userName {
 			return fmt.Errorf("user %q is already a recipient on scope %q", userName, scopePath)
 		}
 	}
 
-	manifest.Recipients = append(manifest.Recipients, domain.ManifestRecipient{
-		Name:      user.Name,
-		PublicKey: user.PublicKey,
-	})
+	// Add all of the user's keys as recipients.
+	for _, key := range user.AllKeys() {
+		manifest.Recipients = append(manifest.Recipients, domain.ManifestRecipient{
+			Name:      user.Name,
+			PublicKey: key,
+		})
+	}
 	manifest.UpdatedAt = time.Now().UTC()
 
 	// Re-encrypt vault with new recipient list.

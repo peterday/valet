@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"filippo.io/age"
+	"filippo.io/age/agessh"
 	"github.com/peterday/valet/internal/domain"
 )
 
@@ -20,17 +21,28 @@ func ParseRecipients(keys []string) ([]age.Recipient, error) {
 		if k == "" {
 			continue
 		}
-		r, err := age.ParseX25519Recipient(k)
-		if err != nil {
-			// Try SSH key format
-			rr, sshErr := age.ParseRecipients(strings.NewReader(k))
-			if sshErr != nil {
-				return nil, fmt.Errorf("parsing recipient %q: %w", k, err)
+
+		// Age X25519 keys.
+		if strings.HasPrefix(k, "age1") {
+			r, err := age.ParseX25519Recipient(k)
+			if err != nil {
+				return nil, fmt.Errorf("parsing age recipient %q: %w", k, err)
 			}
-			recipients = append(recipients, rr...)
+			recipients = append(recipients, r)
 			continue
 		}
-		recipients = append(recipients, r)
+
+		// SSH keys (ssh-ed25519, ssh-rsa, etc).
+		if strings.HasPrefix(k, "ssh-") {
+			r, err := agessh.ParseRecipient(k)
+			if err != nil {
+				return nil, fmt.Errorf("parsing SSH recipient %q: %w", k, err)
+			}
+			recipients = append(recipients, r)
+			continue
+		}
+
+		return nil, fmt.Errorf("unrecognized recipient format %q: expected age1... or ssh-...", k)
 	}
 	return recipients, nil
 }

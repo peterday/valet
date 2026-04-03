@@ -1,0 +1,19 @@
+{{define "provider_card"}}
+<div class="bg-slate-800 rounded-lg border border-slate-700 p-4">
+  <div class="flex items-center gap-2 mb-2">
+    {{if .Provider}}
+    <span class="text-xs px-2 py-0.5 rounded-full
+      {{if eq .Provider.Category "ai"}}bg-purple-500/20 text-purple-400
+      {{else if eq .Provider.Category "payments"}}bg-blue-500/20 text-blue-400
+      {{else if eq .Provider.Category "cloud"}}bg-cyan-500/20 text-cyan-400
+      {{else}}bg-slate-600/50 text-slate-300{{end}}">{{.Provider.DisplayName}}</span>
+    {{end}}
+  </div>
+  {{if .Provider}}{{if .Provider.Description}}
+  <p class="text-sm text-slate-400">{{.Provider.Description}}</p>
+  {{end}}{{end}}
+  {{if .Provider}}{{if .Provider.FreeTier}}
+  <p class="text-xs text-emerald-400 mt-1">{{.Provider.FreeTier}}</p>
+  {{end}}{{end}}
+</div>
+{{end}}

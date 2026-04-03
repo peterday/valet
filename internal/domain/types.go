@@ -28,12 +28,90 @@ type Project struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// User is a member of a store with a public key for encryption.
+// User is a member of a store with one or more public keys for encryption.
 type User struct {
-	Name      string    `json:"name"`
-	GitHub    string    `json:"github,omitempty"`
-	PublicKey string    `json:"public_key"`
-	CreatedAt time.Time `json:"created_at"`
+	Name       string    `json:"name"`
+	GitHub     string    `json:"github,omitempty"`
+	PublicKey  string    `json:"public_key,omitempty"`  // deprecated: single key (backward compat)
+	PublicKeys []string  `json:"public_keys,omitempty"` // deprecated: flat key list (backward compat)
+	Keys       []UserKey `json:"keys,omitempty"`        // labeled keys (current format)
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// UserKey is a public key with provenance metadata.
+type UserKey struct {
+	Key    string `json:"key"`
+	Label  string `json:"label,omitempty"`  // human name, e.g. "Work MacBook Pro"
+	Source string `json:"source,omitempty"` // where this key came from: "github", "manual", "age-identity"
+}
+
+// AllKeys returns all public key strings for this user, handling backward compat.
+func (u *User) AllKeys() []string {
+	if len(u.PublicKeys) > 0 {
+		return u.PublicKeys
+	}
+	var keys []string
+	for _, k := range u.Keys {
+		keys = append(keys, k.Key)
+	}
+	if len(keys) > 0 {
+		return keys
+	}
+	if u.PublicKey != "" {
+		return []string{u.PublicKey}
+	}
+	return nil
+}
+
+// AllUserKeys returns the full UserKey structs (with labels).
+// Infers source from key format when not explicitly set.
+func (u *User) AllUserKeys() []UserKey {
+	if len(u.Keys) > 0 {
+		// Backfill source if missing.
+		for i := range u.Keys {
+			if u.Keys[i].Source == "" {
+				u.Keys[i].Source = inferKeySource(u.Keys[i].Key)
+			}
+		}
+		return u.Keys
+	}
+	// Migrate from flat strings.
+	for _, k := range u.PublicKeys {
+		u.Keys = append(u.Keys, UserKey{Key: k, Source: inferKeySource(k)})
+	}
+	if len(u.Keys) == 0 && u.PublicKey != "" {
+		u.Keys = []UserKey{{Key: u.PublicKey, Source: inferKeySource(u.PublicKey)}}
+	}
+	return u.Keys
+}
+
+func inferKeySource(key string) string {
+	if len(key) > 4 && key[:4] == "age1" {
+		return "age-identity"
+	}
+	if len(key) > 4 && (key[:4] == "ssh-" || key[:5] == "ecdsa") {
+		return "ssh"
+	}
+	return "manual"
+}
+
+// PrimaryKey returns the first public key (for display/identification).
+func (u *User) PrimaryKey() string {
+	keys := u.AllKeys()
+	if len(keys) > 0 {
+		return keys[0]
+	}
+	return ""
+}
+
+// HasKey returns true if the user has the given public key.
+func (u *User) HasKey(key string) bool {
+	for _, k := range u.AllKeys() {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }
 
 // ManifestRecipient is a recipient entry in a scope manifest.

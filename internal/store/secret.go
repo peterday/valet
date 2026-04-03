@@ -68,7 +68,7 @@ func (s *Store) setSecretInternal(projectSlug, scopePath, key, value, provider s
 	updatedBy := s.Identity.PublicKey
 	users, _ := s.ListUsers()
 	for _, u := range users {
-		if u.PublicKey == s.Identity.PublicKey {
+		if u.HasKey(s.Identity.PublicKey) {
 			updatedBy = u.Name
 			break
 		}
@@ -102,6 +102,14 @@ func (s *Store) setSecretInternal(projectSlug, scopePath, key, value, provider s
 		}
 		manifest.Providers[key] = provider
 		manifestChanged = true
+	}
+
+	// Clear rotation flag if set — the secret was just updated/rotated.
+	if manifest.RotationFlags != nil {
+		if _, flagged := manifest.RotationFlags[key]; flagged {
+			delete(manifest.RotationFlags, key)
+			manifestChanged = true
+		}
 	}
 
 	if manifestChanged {

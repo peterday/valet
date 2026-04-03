@@ -1,0 +1,63 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  <h1 class="text-2xl font-semibold text-white mb-6">Project</h1>
+
+  <div class="flex items-center gap-4 mb-6">
+    <div>
+      <span class="text-sm text-slate-400">Project:</span>
+      <span class="font-mono text-white ml-1">{{.ProjectName}}</span>
+    </div>
+  </div>
+
+  <div class="flex gap-4 mb-6 border-b border-slate-700 text-sm">
+    <a href="/project?env={{.ActiveEnv}}" class="pb-2 border-b-2 border-transparent text-slate-400 hover:text-white transition-colors">Requirements</a>
+    <a href="/project/resolution?env={{.ActiveEnv}}" class="pb-2 border-b-2 border-indigo-500 text-white">Resolution</a>
+    <a href="/project/setup" class="pb-2 border-b-2 border-transparent text-slate-400 hover:text-white transition-colors">Setup</a>
+    <a href="/project/links" class="pb-2 border-b-2 border-transparent text-slate-400 hover:text-white transition-colors">Linked Stores</a>
+  </div>
+
+  {{if .Environments}}
+  <div class="flex gap-2 mb-6">
+    {{range .Environments}}
+    <a href="/project/resolution?env={{.}}"
+       class="px-3 py-1.5 rounded-md text-sm transition-colors
+         {{if eq . $.ActiveEnv}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white{{end}}">
+      {{.}}
+    </a>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if not .Rows}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    No secrets resolved for this environment.
+  </div>
+  {{else}}
+  <div class="space-y-4">
+    {{range .Rows}}
+    <div class="bg-slate-800 rounded-lg border border-slate-700 p-4">
+      <h3 class="font-mono text-sm text-white font-medium mb-3">{{.Key}}</h3>
+      <div class="space-y-1.5 ml-4">
+        {{range .Sources}}
+        <div class="flex items-center gap-3 text-sm">
+          {{if .IsWinner}}
+            <span class="text-emerald-400">&#10003;</span>
+          {{else}}
+            <span class="text-slate-600">&#10007;</span>
+          {{end}}
+          <span class="font-mono {{if .IsWinner}}text-indigo-400{{else}}text-slate-500{{end}} w-40 shrink-0">{{.StoreName}}/{{.ScopePath}}</span>
+          {{if .HasValue}}
+            <span class="font-mono text-xs {{if .IsWinner}}text-slate-300{{else}}text-slate-600{{end}}">{{.Masked}}</span>
+            {{if .IsWinner}}<span class="text-xs text-emerald-500 ml-1">&larr; winner</span>{{end}}
+          {{else}}
+            <span class="text-slate-600">—</span>
+          {{end}}
+        </div>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

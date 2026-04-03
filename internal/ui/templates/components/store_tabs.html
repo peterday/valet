@@ -1,0 +1,62 @@
+{{define "store_tabs"}}
+<div class="flex items-center gap-2 text-sm text-slate-400 mb-4">
+  <a href="/stores" class="hover:text-white transition-colors">Stores</a>
+  <span>/</span>
+  <span class="text-white font-mono">{{.StoreName}}</span>
+  {{if .StoreType}}
+  <span class="text-xs px-2 py-0.5 rounded-full ml-1
+    {{if eq (printf "%s" .StoreType) "local"}}bg-slate-600/50 text-slate-300
+    {{else if eq (printf "%s" .StoreType) "embedded"}}bg-indigo-500/20 text-indigo-400
+    {{else}}bg-cyan-500/20 text-cyan-400{{end}}">{{.StoreType}}</span>
+  {{end}}
+  {{if .StoreRemote}}
+  <span class="text-xs text-slate-500 ml-2 font-mono">{{.StoreRemote}}</span>
+  {{end}}
+
+  {{if .StoreRemote}}
+  <div class="ml-auto flex items-center gap-2">
+    <span id="push-result"></span>
+    {{if .HasUnpushed}}
+    <button class="text-xs px-3 py-1 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white transition-colors flex items-center gap-1.5"
+            hx-post="/stores/{{.StoreName}}/push"
+            hx-vals='{"_csrf":"{{.CSRFToken}}"}'
+            hx-target="#push-result"
+            hx-swap="innerHTML">
+      <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+      Push
+    </button>
+    {{else}}
+    <button class="text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700 hover:text-slate-300 transition-colors flex items-center gap-1.5"
+            hx-post="/stores/{{.StoreName}}/push"
+            hx-vals='{"_csrf":"{{.CSRFToken}}"}'
+            hx-target="#push-result"
+            hx-swap="innerHTML">
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      Push
+    </button>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+
+<div class="flex gap-4 mb-6 border-b border-slate-700 text-sm">
+  <a href="/stores/{{.StoreName}}"
+     class="pb-2 border-b-2 {{if eq .Tab "secrets"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
+    Secrets</a>
+  <a href="/stores/{{.StoreName}}/team"
+     class="pb-2 border-b-2 {{if eq .Tab "team"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
+    Team</a>
+  <a href="/stores/{{.StoreName}}/environments"
+     class="pb-2 border-b-2 {{if eq .Tab "environments"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
+    Environments</a>
+  <a href="/stores/{{.StoreName}}/rotation"
+     class="pb-2 border-b-2 {{if eq .Tab "rotation"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
+    Rotation</a>
+  <a href="/stores/{{.StoreName}}/invites"
+     class="pb-2 border-b-2 {{if eq .Tab "invites"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
+    Invites</a>
+  <a href="/stores/{{.StoreName}}/activity"
+     class="pb-2 border-b-2 {{if eq .Tab "activity"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
+    Activity</a>
+</div>
+{{end}}

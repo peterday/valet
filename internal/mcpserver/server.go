@@ -16,6 +16,7 @@ import (
 	"github.com/peterday/valet/internal/identity"
 	"github.com/peterday/valet/internal/provider"
 	"github.com/peterday/valet/internal/store"
+	"github.com/peterday/valet/internal/ui"
 )
 
 // Serve starts the MCP server over stdio.
@@ -36,6 +37,7 @@ func Serve(version string) error {
 	s.AddTool(requireTool, requireHandler)
 	s.AddTool(providerSearchTool, providerSearchHandler)
 	s.AddTool(helpTool, helpHandler)
+	s.AddTool(setupWebTool, setupWebHandler)
 
 	return server.ServeStdio(s)
 }
@@ -1328,4 +1330,56 @@ func openAllProjectStores(id *identity.Identity) ([]store.LinkedStore, error) {
 	localStore := store.OpenLocalStore(tomlDir, id)
 
 	return store.OpenLinkedStores(lc.Stores, vc.Stores, primary, localStore, id), nil
+}
+
+// --- valet_setup_web: browser-based setup page ---
+
+var setupWebTool = mcp.NewTool("valet_setup_web",
+	mcp.WithDescription(`Open a browser-based setup page for entering missing secret values.
+Values go from browser → local server → encrypted store. Never passes through the AI context.
+Blocks until the user submits the form or 10 minute timeout.`),
+	mcp.WithString("keys", mcp.Description("Comma-separated list of specific keys to set up. If omitted, shows all missing requirements.")),
+)
+
+func setupWebHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	keysStr := req.GetString("keys", "")
+	var keys []string
+	if keysStr != "" {
+		for _, k := range strings.Split(keysStr, ",") {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				keys = append(keys, k)
+			}
+		}
+	}
+
+	id, err := identity.LoadOrInit()
+	if err != nil {
+		return errResult("identity: %v", err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return errResult("config: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errResult("cannot get working directory: %v", err)
+	}
+
+	// Verify we're in a project.
+	if _, err := config.FindValetToml(cwd); err != nil {
+		return errResult("no .valet.toml found — run valet_init first")
+	}
+
+	result, err := ui.SetupWeb(cfg, id, cwd, keys)
+	if err != nil {
+		if strings.Contains(err.Error(), "timed out") {
+			return mcp.NewToolResultText("Setup page timed out. User can run 'valet ui' to try again."), nil
+		}
+		return errResult("setup web: %v", err)
+	}
+
+	return mcp.NewToolResultText(result), nil
 }

@@ -1,0 +1,25 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  {{template "store_tabs" .}}
+
+  {{if not .IsGitRepo}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    Activity log is only available for git-backed stores.
+  </div>
+  {{else if not .Entries}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    No activity recorded yet.
+  </div>
+  {{else}}
+  <div class="space-y-2">
+    {{range .Entries}}
+    <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 flex items-center gap-4">
+      <span class="text-sm text-slate-500 w-28 shrink-0">{{.Time}}</span>
+      <span class="text-sm text-indigo-400 w-24 shrink-0">{{.Author}}</span>
+      <span class="text-sm text-slate-300">{{.Message}}</span>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}

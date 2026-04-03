@@ -1,0 +1,67 @@
+{{define "content"}}
+<div class="max-w-5xl">
+  {{template "store_tabs" .}}
+
+  {{if eq .Count 0}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center">
+    <div class="text-emerald-400 text-lg mb-2">No secrets need rotation.</div>
+    <p class="text-slate-400 text-sm">Looking good.</p>
+  </div>
+  {{else}}
+  <div class="mb-4">
+    <span class="text-amber-400 font-medium">{{.Count}} secret{{if gt .Count 1}}s{{end}} need rotation</span>
+  </div>
+
+  <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+          <th class="text-left p-4">Secret</th>
+          <th class="text-left p-4">Env</th>
+          <th class="text-left p-4">Reason</th>
+          <th class="text-left p-4">Flagged</th>
+          <th class="text-left p-4">Guidance</th>
+          <th class="text-right p-4">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Rows}}
+        <tr class="border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors" id="rotation-{{.Key}}">
+          <td class="p-4">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+              <span class="font-mono text-sm text-white">{{.Key}}</span>
+            </div>
+          </td>
+          <td class="p-4">
+            <span class="text-xs bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{{.Env}}</span>
+          </td>
+          <td class="p-4 text-sm text-slate-400">{{.Reason}}</td>
+          <td class="p-4 text-sm text-slate-500">{{.FlaggedAt}}</td>
+          <td class="p-4 text-sm">
+            {{if .Guidance}}
+            <span class="text-slate-300">{{.Guidance}}</span>
+            {{end}}
+            {{if .RevokeURL}}
+            <a href="{{.RevokeURL}}" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300 text-xs ml-1">revoke &rarr;</a>
+            {{end}}
+            {{if not .Guidance}}<span class="text-slate-500">&mdash;</span>{{end}}
+          </td>
+          <td class="p-4 text-right">
+            <button class="text-xs px-2.5 py-1 rounded bg-slate-700 text-slate-300 hover:bg-emerald-600 hover:text-white transition-colors"
+                    hx-post="/stores/{{$.StoreName}}/rotation/clear"
+                    hx-target="#rotation-{{.Key}}"
+                    hx-swap="outerHTML"
+                    hx-vals='{"_csrf":"{{$.CSRFToken}}","scope":"{{.ScopePath}}","key":"{{.Key}}"}'
+                    hx-confirm="Confirm you have rotated {{.Key}}?">
+              Mark as rotated
+            </button>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+</div>
+{{end}}
