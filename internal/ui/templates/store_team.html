@@ -12,7 +12,7 @@
 
   <!-- Add user form -->
   <div id="add-user-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
-    <form id="github-add-form" hx-post="/stores/{{.StoreName}}/users" hx-target="#github-add-result" hx-swap="innerHTML" class="space-y-3">
+    <form id="github-add-form" hx-post="/stores/{{.StoreNameEncoded}}/users" hx-target="#github-add-result" hx-swap="innerHTML" class="space-y-3">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
       <div class="flex gap-3 items-end">
         <div class="flex-1">
@@ -41,7 +41,7 @@
               class="text-xs text-slate-500 hover:text-white transition-colors">
         Or add manually with a public key &darr;
       </button>
-      <form id="manual-add-form" method="POST" action="/stores/{{.StoreName}}/users" class="hidden space-y-3 mt-3">
+      <form id="manual-add-form" method="POST" action="/stores/{{.StoreNameEncoded}}/users" class="hidden space-y-3 mt-3">
         <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
         <div class="flex gap-3">
           <div class="flex-1">
@@ -86,7 +86,7 @@
           {{if .GitHub}}
           <div class="text-xs text-slate-500 mt-0.5">@{{.GitHub}}</div>
           {{else}}
-          <form method="POST" action="/stores/{{$.StoreName}}/users/{{.UserName}}/update" class="flex items-center gap-1.5 mt-1">
+          <form method="POST" action="/stores/{{$.StoreNameEncoded}}/users/{{.UserName}}/update" class="flex items-center gap-1.5 mt-1">
             <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
             <span class="text-xs text-slate-600">no GitHub linked</span>
             <input type="text" name="github" placeholder="username" autocomplete="off"
@@ -97,7 +97,7 @@
         </div>
         <div class="flex items-center gap-1.5">
           {{if .GitHub}}
-          <form method="POST" action="/stores/{{$.StoreName}}/users/{{.UserName}}/refresh" class="inline">
+          <form method="POST" action="/stores/{{$.StoreNameEncoded}}/users/{{.UserName}}/refresh" class="inline">
             <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
             <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
                     title="Sync SSH keys from GitHub">
@@ -105,7 +105,7 @@
             </button>
           </form>
           {{end}}
-          <form method="POST" action="/stores/{{$.StoreName}}/users/{{.UserName}}/remove" class="inline"
+          <form method="POST" action="/stores/{{$.StoreNameEncoded}}/users/{{.UserName}}/remove" class="inline"
                 onsubmit="return confirm('Remove {{.UserName}}? They will be revoked from all environments and affected secrets flagged for rotation.{{if .IsYou}} This is you — you will lose access.{{end}}')">
             <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
             <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-rose-400 hover:bg-rose-600 hover:text-white transition-colors">
@@ -135,7 +135,7 @@
         {{range .Cells}}
         {{if .HasAccess}}
         <button class="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
-                hx-post="/stores/{{$.StoreName}}/revoke"
+                hx-post="/stores/{{$.StoreNameEncoded}}/revoke"
                 hx-vals='{"_csrf":"{{$.CSRFToken}}","user":"{{$row.UserName}}","env":"{{.Env}}"}'
                 hx-confirm="Revoke {{$row.UserName}} from {{.Env}}? Secrets will be flagged for rotation."
                 hx-on::after-request="window.location.reload()"
@@ -144,7 +144,7 @@
         </button>
         {{else}}
         <button class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-500 hover:bg-emerald-500/20 hover:text-emerald-400 transition-colors"
-                hx-post="/stores/{{$.StoreName}}/grant"
+                hx-post="/stores/{{$.StoreNameEncoded}}/grant"
                 hx-vals='{"_csrf":"{{$.CSRFToken}}","user":"{{$row.UserName}}","env":"{{.Env}}"}'
                 hx-on::after-request="window.location.reload()"
                 title="Grant {{.Env}} access">

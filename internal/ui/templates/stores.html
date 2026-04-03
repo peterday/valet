@@ -23,7 +23,7 @@
       <tbody>
         {{range .Stores}}
         <tr class="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors cursor-pointer"
-            onclick="window.location='/stores/{{.Name}}'">
+            onclick="window.location='/stores/{{urlEncode .Name}}'">
           <td class="p-4">
             <span class="font-mono text-sm text-white">{{.Name}}</span>
             {{if .IsProject}}<span class="ml-2 text-xs bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded">project</span>{{end}}

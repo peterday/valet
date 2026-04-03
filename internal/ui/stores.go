@@ -645,7 +645,9 @@ func (s *Server) handleStoreInventory(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveStoreByName handles both named stores and project-embedded stores.
+// Names may be URL-encoded (slashes as __SLASH__).
 func (s *Server) resolveStoreByName(name string) (*store.Store, error) {
+	name = urlDecodeStoreName(name)
 	// Check if this is the embedded store.
 	if s.valetCfg != nil && strings.HasSuffix(name, "/.valet") {
 		return store.Open(name, s.id)

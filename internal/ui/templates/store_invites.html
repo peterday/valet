@@ -44,7 +44,7 @@
 
     <div class="mt-3">
       <button class="text-xs text-slate-400 hover:text-white transition-colors"
-              hx-post="/stores/{{.StoreName}}/invites/expired/prune"
+              hx-post="/stores/{{.StoreNameEncoded}}/invites/expired/prune"
               hx-vals='{"_csrf":"{{.CSRFToken}}"}'
               hx-target="#prune-result"
               hx-swap="innerHTML">
@@ -58,7 +58,7 @@
   <!-- Create invite form -->
   <div class="bg-slate-800 rounded-lg border border-slate-700 p-6">
     <h2 class="text-lg font-medium text-white mb-4">Create Invite</h2>
-    <form hx-post="/stores/{{.StoreName}}/invites" hx-target="#invite-result" hx-swap="innerHTML">
+    <form hx-post="/stores/{{.StoreNameEncoded}}/invites" hx-target="#invite-result" hx-swap="innerHTML">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
 
       <div class="space-y-4">

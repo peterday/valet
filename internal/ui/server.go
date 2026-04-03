@@ -273,6 +273,7 @@ func (s *Server) funcMap() template.FuncMap {
 		"timeAgo":    timeAgo,
 		"truncate":   truncate,
 		"safeJS":     func(s string) template.JS { return template.JS(s) },
+		"urlEncode":  urlEncodeStoreName,
 		"upper":      strings.ToUpper,
 		"add":        func(a, b int) int { return a + b },
 		"seq":        func(n int) []int { r := make([]int, n); for i := range r { r[i] = i }; return r },
@@ -335,8 +336,9 @@ func (s *Server) render(w http.ResponseWriter, tmpl string, data map[string]any)
 	data["HasProject"] = s.valetCfg != nil
 	data["ProjectDir"] = s.projectDir
 
-	// Auto-compute HasUnpushed for store detail pages.
+	// For store detail pages, add the URL-safe encoded name.
 	if storeName, ok := data["StoreName"].(string); ok && storeName != "" {
+		data["StoreNameEncoded"] = urlEncodeStoreName(storeName)
 		if _, hasRemote := data["StoreRemote"]; hasRemote {
 			if st, err := s.resolveStoreByName(storeName); err == nil {
 				data["HasUnpushed"] = storeHasUnpushed(st)

@@ -6,7 +6,7 @@
   <div class="flex items-center gap-4 mb-6">
     <div class="flex gap-2 flex-wrap">
       {{range .Environments}}
-      <a href="/stores/{{$.StoreName}}/environments?env={{.}}"
+      <a href="/stores/{{$.StoreNameEncoded}}/environments?env={{.}}"
          class="px-3 py-1.5 rounded-md text-sm transition-colors
            {{if eq . $.ActiveEnv}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white{{end}}">
         {{.}}
@@ -25,7 +25,7 @@
               class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
         Clone {{.ActiveEnv}}
       </button>
-      <form method="POST" action="/stores/{{.StoreName}}/environments/delete" class="inline"
+      <form method="POST" action="/stores/{{.StoreNameEncoded}}/environments/delete" class="inline"
             onsubmit="return confirm('Delete environment {{.ActiveEnv}}? This will remove all secrets and access in this environment.')">
         <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
         <input type="hidden" name="env_name" value="{{.ActiveEnv}}">
@@ -39,7 +39,7 @@
 
   <!-- Create env form (hidden by default) -->
   <div id="create-env-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
-    <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreName}}/environments/create">
+    <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreNameEncoded}}/environments/create">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
       <div class="flex-1">
         <label class="block text-xs text-slate-400 mb-1">Environment name</label>
@@ -54,7 +54,7 @@
 
   <!-- Clone env form (hidden by default) -->
   <div id="clone-env-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
-    <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreName}}/environments/clone">
+    <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreNameEncoded}}/environments/clone">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
       <input type="hidden" name="source_env" value="{{.ActiveEnv}}">
       <div class="flex-1">
@@ -105,7 +105,7 @@
               </td>
               <td class="text-right p-3">
                 {{if .HasAccess}}
-                <form method="POST" action="/stores/{{$.StoreName}}/revoke" class="inline"
+                <form method="POST" action="/stores/{{$.StoreNameEncoded}}/revoke" class="inline"
                       onsubmit="return confirm('Revoke {{.UserName}} from {{$.ActiveEnv}}? Secrets will be flagged for rotation.')">
                   <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                   <input type="hidden" name="user" value="{{.UserName}}">
@@ -115,7 +115,7 @@
                   </button>
                 </form>
                 {{else}}
-                <form method="POST" action="/stores/{{$.StoreName}}/grant" class="inline">
+                <form method="POST" action="/stores/{{$.StoreNameEncoded}}/grant" class="inline">
                   <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                   <input type="hidden" name="user" value="{{.UserName}}">
                   <input type="hidden" name="env" value="{{$.ActiveEnv}}">
