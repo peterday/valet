@@ -18,7 +18,7 @@
     <span id="push-result"></span>
     {{if .HasUnpushed}}
     <button class="text-xs px-3 py-1 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white transition-colors flex items-center gap-1.5"
-            hx-post="/stores/{{.StoreName}}/push"
+            hx-post="/stores/{{.StoreNameEncoded}}/push"
             hx-vals='{"_csrf":"{{.CSRFToken}}"}'
             hx-target="#push-result"
             hx-swap="innerHTML">
@@ -27,7 +27,7 @@
     </button>
     {{else}}
     <button class="text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700 hover:text-slate-300 transition-colors flex items-center gap-1.5"
-            hx-post="/stores/{{.StoreName}}/push"
+            hx-post="/stores/{{.StoreNameEncoded}}/push"
             hx-vals='{"_csrf":"{{.CSRFToken}}"}'
             hx-target="#push-result"
             hx-swap="innerHTML">
@@ -40,22 +40,22 @@
 </div>
 
 <div class="flex gap-4 mb-6 border-b border-slate-700 text-sm">
-  <a href="/stores/{{.StoreName}}"
+  <a href="/stores/{{.StoreNameEncoded}}"
      class="pb-2 border-b-2 {{if eq .Tab "secrets"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
     Secrets</a>
-  <a href="/stores/{{.StoreName}}/team"
+  <a href="/stores/{{.StoreNameEncoded}}/team"
      class="pb-2 border-b-2 {{if eq .Tab "team"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
     Team</a>
-  <a href="/stores/{{.StoreName}}/environments"
+  <a href="/stores/{{.StoreNameEncoded}}/environments"
      class="pb-2 border-b-2 {{if eq .Tab "environments"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
     Environments</a>
-  <a href="/stores/{{.StoreName}}/rotation"
+  <a href="/stores/{{.StoreNameEncoded}}/rotation"
      class="pb-2 border-b-2 {{if eq .Tab "rotation"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
     Rotation</a>
-  <a href="/stores/{{.StoreName}}/invites"
+  <a href="/stores/{{.StoreNameEncoded}}/invites"
      class="pb-2 border-b-2 {{if eq .Tab "invites"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
     Invites</a>
-  <a href="/stores/{{.StoreName}}/activity"
+  <a href="/stores/{{.StoreNameEncoded}}/activity"
      class="pb-2 border-b-2 {{if eq .Tab "activity"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">
     Activity</a>
 </div>

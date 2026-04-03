@@ -49,7 +49,7 @@
           </td>
           <td class="p-4 text-right">
             <button class="text-xs px-2.5 py-1 rounded bg-slate-700 text-slate-300 hover:bg-emerald-600 hover:text-white transition-colors"
-                    hx-post="/stores/{{$.StoreName}}/rotation/clear"
+                    hx-post="/stores/{{$.StoreNameEncoded}}/rotation/clear"
                     hx-target="#rotation-{{.Key}}"
                     hx-swap="outerHTML"
                     hx-vals='{"_csrf":"{{$.CSRFToken}}","scope":"{{.ScopePath}}","key":"{{.Key}}"}'

@@ -5,7 +5,7 @@
   <!-- Environment pills -->
   {{if .Environments}}
   <div class="flex gap-2 mb-6">
-    <a href="/stores/{{.StoreName}}?env=all"
+    <a href="/stores/{{.StoreNameEncoded}}?env=all"
        class="px-3 py-1.5 rounded-md text-sm transition-colors bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white">
       All
     </a>
@@ -57,7 +57,7 @@
               <span id="reveal-{{.Key}}" class="hidden"></span>
               <button
                 class="reveal-btn text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
-                hx-post="/stores/{{$.StoreName}}/secrets/{{.Key}}/reveal"
+                hx-post="/stores/{{$.StoreNameEncoded}}/secrets/{{.Key}}/reveal"
                 hx-target="#reveal-{{.Key}}"
                 hx-swap="innerHTML"
                 hx-vals='{"_csrf":"{{$.CSRFToken}}","scope":"{{.Scope}}"}'
@@ -67,7 +67,7 @@
               </button>
               <button
                 class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
-                hx-post="/stores/{{$.StoreName}}/secrets/{{.Key}}/reveal"
+                hx-post="/stores/{{$.StoreNameEncoded}}/secrets/{{.Key}}/reveal"
                 hx-target="#copy-target"
                 hx-swap="innerHTML"
                 hx-vals='{"_csrf":"{{$.CSRFToken}}","scope":"{{.Scope}}"}'

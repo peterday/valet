@@ -26,6 +26,17 @@ func readManifestFile(storeRoot, project, scopePath string) *domain.Manifest {
 	return &m
 }
 
+// urlEncodeStoreName encodes a store name for use in URLs.
+// Replaces / with __SLASH__ since Go's router splits on /.
+func urlEncodeStoreName(name string) string {
+	return strings.ReplaceAll(name, "/", "__SLASH__")
+}
+
+// urlDecodeStoreName reverses urlEncodeStoreName.
+func urlDecodeStoreName(encoded string) string {
+	return strings.ReplaceAll(encoded, "__SLASH__", "/")
+}
+
 // storeHasUnpushed checks if a git-backed store has uncommitted or unpushed changes.
 func storeHasUnpushed(st *store.Store) bool {
 	if !st.IsGitRepo() {

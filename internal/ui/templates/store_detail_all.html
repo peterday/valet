@@ -5,12 +5,12 @@
   <!-- Environment pills -->
   <div class="flex items-center gap-2 mb-6">
     <div class="flex gap-2 flex-wrap">
-      <a href="/stores/{{.StoreName}}?env=all"
+      <a href="/stores/{{.StoreNameEncoded}}?env=all"
          class="px-3 py-1.5 rounded-md text-sm transition-colors bg-indigo-500 text-white">
         All
       </a>
       {{range .Environments}}
-      <a href="/stores/{{$.StoreName}}?env={{.}}"
+      <a href="/stores/{{$.StoreNameEncoded}}?env={{.}}"
          class="px-3 py-1.5 rounded-md text-sm transition-colors bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white">
         {{.}}
       </a>
@@ -68,7 +68,7 @@
 
     <!-- Manual key form (shown when Manual selected) -->
     <div id="manual-form">
-      <form method="POST" action="/stores/{{.StoreName}}/secrets" class="space-y-3">
+      <form method="POST" action="/stores/{{.StoreNameEncoded}}/secrets" class="space-y-3">
         <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
         <input type="hidden" name="env" id="manual-env" value="*">
         <div>
@@ -164,7 +164,7 @@
     p.envVars.forEach(function(ev) {
       var div = document.createElement('div');
       div.innerHTML =
-        '<form method="POST" action="/stores/{{.StoreName}}/secrets" class="flex items-end gap-2">' +
+        '<form method="POST" action="/stores/{{.StoreNameEncoded}}/secrets" class="flex items-end gap-2">' +
           '<input type="hidden" name="_csrf" value="{{.CSRFToken}}">' +
           '<input type="hidden" name="provider" value="' + p.name + '">' +
           '<input type="hidden" name="env" value="' + envSel.value + '">' +
@@ -291,7 +291,7 @@
                 </button>
               </div>
               <form class="action-form hidden flex items-center gap-1.5" method="POST"
-                    action="/stores/{{$.StoreName}}/secrets/{{$group.Key}}/set"
+                    action="/stores/{{$.StoreNameEncoded}}/secrets/{{$group.Key}}/set"
                     onclick="event.stopPropagation()">
                 <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                 <input type="hidden" name="env" value="{{.Env}}">
@@ -311,7 +311,7 @@
                         onclick="event.stopPropagation(); showInlineSet(this.closest('.inline-action'))">
                   Edit
                 </button>
-                <form method="POST" action="/stores/{{$.StoreName}}/secrets/{{$group.Key}}/delete" class="inline"
+                <form method="POST" action="/stores/{{$.StoreNameEncoded}}/secrets/{{$group.Key}}/delete" class="inline"
                       onsubmit="event.stopPropagation(); return confirm('Delete {{$group.Key}} from {{.Env}}?')">
                   <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                   <input type="hidden" name="scope" value="{{.Scope}}">
@@ -321,7 +321,7 @@
                 </form>
               </div>
               <form class="action-form hidden flex items-center gap-1.5" method="POST"
-                    action="/stores/{{$.StoreName}}/secrets/{{$group.Key}}/set"
+                    action="/stores/{{$.StoreNameEncoded}}/secrets/{{$group.Key}}/set"
                     onclick="event.stopPropagation()">
                 <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
                 <input type="hidden" name="env" value="{{.Env}}">
