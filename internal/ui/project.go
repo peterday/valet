@@ -3,7 +3,10 @@ package ui
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -23,10 +26,21 @@ type requirementRow struct {
 
 func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 	if s.valetCfg == nil {
+		// Check for .env.example in the current directory or s.projectDir.
+		checkDir := s.projectDir
+		if checkDir == "" {
+			checkDir, _ = os.Getwd()
+		}
+		envExamplePath := ""
+		if checkDir != "" {
+			envExamplePath = store.FindEnvExample(checkDir)
+		}
 		s.render(w, "project.html", map[string]any{
-			"Page":       "project",
-			"HasProject": false,
-			"ProjectDir": s.projectDir,
+			"Page":           "project",
+			"HasProject":     false,
+			"ProjectDir":     s.projectDir,
+			"EnvExamplePath": envExamplePath,
+			"AdoptDir":       checkDir,
 		})
 		return
 	}
@@ -90,6 +104,113 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 		"Environments": envs,
 		"Requirements": rows,
 	})
+}
+
+func (s *Server) handleProjectAdoptPreview(w http.ResponseWriter, r *http.Request) {
+	dir := r.URL.Query().Get("path")
+	if dir == "" {
+		dir = s.projectDir
+	}
+	if dir == "" {
+		http.Error(w, "no project directory", http.StatusBadRequest)
+		return
+	}
+
+	result, err := store.AnalyzeForAdopt(dir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.render(w, "project_adopt.html", map[string]any{
+		"Page":       "project",
+		"ProjectDir": dir,
+		"Result":     result,
+	})
+}
+
+func (s *Server) handleProjectAdoptApply(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	dir := r.FormValue("path")
+	if dir == "" {
+		dir = s.projectDir
+	}
+	importEnv := r.FormValue("import_env") == "on"
+
+	result, err := store.AnalyzeForAdopt(dir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Apply user's selection: only track keys they checked.
+	tracked := make(map[string]bool)
+	for _, k := range r.Form["track"] {
+		tracked[k] = true
+	}
+
+	// Filter requirements + promote any non-secrets the user opted to track.
+	var newReqs []store.DetectedRequirement
+	for _, req := range result.Requirements {
+		if tracked[req.Key] {
+			newReqs = append(newReqs, req)
+		}
+	}
+	for _, c := range result.NonSecrets {
+		if tracked[c.Key] {
+			newReqs = append(newReqs, store.DetectedRequirement{
+				Key:              c.Key,
+				PlaceholderValue: c.Value,
+			})
+		}
+	}
+	result.Requirements = newReqs
+
+	if err := result.Apply(dir, s.id, importEnv); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Refresh server's project context.
+	s.projectDir = dir
+	s.loadProjectConfig()
+
+	http.Redirect(w, r, "/project/setup", http.StatusFound)
+}
+
+func (s *Server) handleProjectPickFolder(w http.ResponseWriter, r *http.Request) {
+	var path string
+	var err error
+
+	switch runtime.GOOS {
+	case "darwin":
+		// Use osascript to open a native folder picker.
+		out, e := exec.Command("osascript", "-e",
+			`set theFolder to choose folder with prompt "Select a valet project folder"`,
+			"-e", `POSIX path of theFolder`).Output()
+		if e != nil {
+			http.Error(w, "folder picker cancelled", http.StatusNoContent)
+			return
+		}
+		path = strings.TrimSpace(strings.TrimRight(string(out), "/\n"))
+		err = nil
+	default:
+		http.Error(w, "folder picker not supported on "+runtime.GOOS, http.StatusNotImplemented)
+		return
+	}
+
+	if err != nil || path == "" {
+		http.Error(w, "no folder selected", http.StatusNoContent)
+		return
+	}
+
+	// Return the path as plain text for JS to pick up.
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(path))
 }
 
 func (s *Server) handleProjectSelect(w http.ResponseWriter, r *http.Request) {

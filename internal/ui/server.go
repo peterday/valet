@@ -206,6 +206,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Project.
 	mux.HandleFunc("GET /project", s.handleProject)
 	mux.HandleFunc("POST /project/select", s.handleProjectSelect)
+	mux.HandleFunc("GET /project/pick-folder", s.handleProjectPickFolder)
+	mux.HandleFunc("GET /project/adopt-preview", s.handleProjectAdoptPreview)
+	mux.HandleFunc("POST /project/adopt", s.handleProjectAdoptApply)
 	mux.HandleFunc("GET /project/setup", s.handleProjectSetup)
 	mux.HandleFunc("POST /project/setup", s.handleProjectSetupSave)
 	mux.HandleFunc("GET /project/resolution", s.handleProjectResolution)
