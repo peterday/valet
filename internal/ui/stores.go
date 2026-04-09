@@ -508,22 +508,18 @@ func (s *Server) handleStorePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := st.Push("valet: update from dashboard"); err != nil {
-		if isHTMX(r) {
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<span class="text-rose-400 text-sm">%s</span>`, err.Error())
+		// "nothing to commit" is not an error in this context.
+		if !strings.Contains(err.Error(), "nothing to commit") {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
 
-	if isHTMX(r) {
-		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<span class="text-emerald-400 text-sm">Pushed</span>`))
-		return
+	ref := r.Header.Get("Referer")
+	if ref == "" {
+		ref = "/stores/" + name
 	}
-
-	http.Redirect(w, r, "/stores/"+name, http.StatusFound)
+	http.Redirect(w, r, ref, http.StatusFound)
 }
 
 func (s *Server) handleStoreActivity(w http.ResponseWriter, r *http.Request) {

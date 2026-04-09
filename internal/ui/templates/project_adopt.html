@@ -1,0 +1,117 @@
+{{define "content"}}
+<div class="max-w-4xl">
+  <div class="flex items-center gap-2 text-sm text-slate-400 mb-4">
+    <a href="/project" class="hover:text-white transition-colors">Project</a>
+    <span>/</span>
+    <span class="text-white">Adopt</span>
+  </div>
+
+  <h1 class="text-2xl font-semibold text-white mb-2">Adopt Project</h1>
+  <p class="text-sm text-slate-400 mb-6">
+    Reading <code class="text-xs text-indigo-300">{{.Result.SourceFile}}</code>
+  </p>
+
+  {{if and (not .Result.Requirements) (not .Result.NonSecrets)}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">
+    No variables detected in this file — nothing to adopt.
+  </div>
+  {{else}}
+  <form method="POST" action="/project/adopt">
+    <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    <input type="hidden" name="path" value="{{.ProjectDir}}">
+
+    <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden mb-6">
+      <div class="border-b border-slate-700 px-4 py-3 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-medium text-white">Variables found in .env.example</h2>
+          <p class="text-xs text-slate-500 mt-0.5">Toggle the checkbox to include or exclude each variable. Defaults are based on heuristic detection.</p>
+        </div>
+        <div class="flex gap-2 text-xs">
+          <button type="button" onclick="toggleAll(true)" class="px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600">All</button>
+          <button type="button" onclick="toggleAll(false)" class="px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600">None</button>
+          <button type="button" onclick="toggleDefaults()" class="px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600">Defaults</button>
+        </div>
+      </div>
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-700">
+            <th class="text-left p-3 w-10">Track</th>
+            <th class="text-left p-3">Key</th>
+            <th class="text-left p-3">Provider</th>
+            <th class="text-left p-3">Section</th>
+            <th class="text-left p-3">Description / Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Result.Requirements}}
+          <tr class="border-b border-slate-700/50 hover:bg-slate-700/20">
+            <td class="p-3">
+              <input type="checkbox" name="track" value="{{.Key}}" checked
+                     data-default="checked"
+                     class="adopt-checkbox rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
+            </td>
+            <td class="p-3 font-mono text-sm text-white">{{.Key}}</td>
+            <td class="p-3">
+              {{if .ProviderDisplay}}
+              <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400">{{.ProviderDisplay}}</span>
+              {{else}}
+              <span class="text-slate-500 text-xs">&mdash;</span>
+              {{end}}
+            </td>
+            <td class="p-3 text-xs text-slate-500">{{.Section}}</td>
+            <td class="p-3 text-xs text-slate-400">{{if .Description}}{{.Description}}{{else}}<span class="text-slate-600 font-mono">{{.PlaceholderValue}}</span>{{end}}</td>
+          </tr>
+          {{end}}
+          {{range .Result.NonSecrets}}
+          <tr class="border-b border-slate-700/50 hover:bg-slate-700/20">
+            <td class="p-3">
+              <input type="checkbox" name="track" value="{{.Key}}"
+                     data-default="unchecked"
+                     class="adopt-checkbox rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
+            </td>
+            <td class="p-3 font-mono text-sm text-slate-400">{{.Key}}</td>
+            <td class="p-3"><span class="text-slate-500 text-xs">&mdash;</span></td>
+            <td class="p-3 text-xs text-slate-600">{{.Reason}}</td>
+            <td class="p-3 text-xs text-slate-500 font-mono">{{.Value}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    {{if .Result.HasExistingEnv}}
+    <div class="mb-4 bg-slate-800 rounded-lg border border-slate-700 p-4">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="import_env" checked
+               class="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
+        <span class="text-sm text-white">Import existing values from <code class="text-xs text-indigo-300">{{.Result.ExistingEnvPath}}</code></span>
+      </label>
+      <p class="text-xs text-slate-500 ml-6 mt-0.5">
+        Values for tracked keys will be encrypted into the embedded store.
+      </p>
+    </div>
+    {{end}}
+
+    <div class="flex gap-3">
+      <button type="submit" class="px-5 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
+        Adopt this project
+      </button>
+      <a href="/project" class="px-5 py-2 text-slate-400 hover:text-white text-sm">Cancel</a>
+    </div>
+  </form>
+
+  <script>
+  function toggleAll(state) {
+    document.querySelectorAll('.adopt-checkbox').forEach(function(cb) {
+      cb.checked = state;
+    });
+  }
+  function toggleDefaults() {
+    document.querySelectorAll('.adopt-checkbox').forEach(function(cb) {
+      cb.checked = (cb.dataset.default === 'checked');
+    });
+  }
+  </script>
+  {{end}}
+</div>
+{{end}}

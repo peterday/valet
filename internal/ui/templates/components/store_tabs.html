@@ -15,26 +15,20 @@
 
   {{if .StoreRemote}}
   <div class="ml-auto flex items-center gap-2">
-    <span id="push-result"></span>
-    {{if .HasUnpushed}}
-    <button class="text-xs px-3 py-1 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white transition-colors flex items-center gap-1.5"
-            hx-post="/stores/{{.StoreNameEncoded}}/push"
-            hx-vals='{"_csrf":"{{.CSRFToken}}"}'
-            hx-target="#push-result"
-            hx-swap="innerHTML">
-      <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-      Push
-    </button>
-    {{else}}
-    <button class="text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700 hover:text-slate-300 transition-colors flex items-center gap-1.5"
-            hx-post="/stores/{{.StoreNameEncoded}}/push"
-            hx-vals='{"_csrf":"{{.CSRFToken}}"}'
-            hx-target="#push-result"
-            hx-swap="innerHTML">
-      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-      Push
-    </button>
-    {{end}}
+    <form method="POST" action="/stores/{{.StoreNameEncoded}}/push" class="inline">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      {{if .HasUnpushed}}
+      <button type="submit" class="text-xs px-3 py-1 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white transition-colors flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+        Push
+      </button>
+      {{else}}
+      <button type="submit" class="text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-500 border border-slate-700 hover:bg-slate-700 hover:text-slate-300 transition-colors flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        Push
+      </button>
+      {{end}}
+    </form>
   </div>
   {{end}}
 </div>

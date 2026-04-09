@@ -53,9 +53,18 @@ Combine modes to layer stores:
 			return initLinked(cwd, projectName, initStoreFlag)
 		}
 
-		// Determine mode from flags.
+		// If a .env.example exists and no flags were given, automatically adopt
+		// it (creates embedded store + requirements + optional .env import).
 		hasLocal := initLocalFlag != ""
 		hasShared := initSharedFlag != ""
+		if !hasLocal && !hasShared && !initEmbeddedFlag {
+			if examplePath := store.FindEnvExample(cwd); examplePath != "" {
+				fmt.Printf("Found %s — adopting...\n\n", examplePath)
+				return runAdoptFromInit(cwd)
+			}
+		}
+
+		// Determine mode from flags.
 		hasEmbedded := initEmbeddedFlag || (!hasLocal && !hasShared)
 
 		tomlPath := filepath.Join(cwd, ".valet.toml")
