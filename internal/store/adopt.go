@@ -201,7 +201,15 @@ func isSecret(key, value string) bool {
 		}
 	}
 
-	// 3. Common config values → not a secret.
+	// 3. Secret-shaped name → secret (checked before value heuristics
+	// so SECRET_MODE=true is still a secret).
+	for _, p := range secretNamePatterns {
+		if strings.Contains(upper, p) {
+			return true
+		}
+	}
+
+	// 4. Common config values → not a secret.
 	v := strings.ToLower(strings.TrimSpace(value))
 	if configValueExacts[v] {
 		return false
@@ -211,16 +219,16 @@ func isSecret(key, value string) bool {
 		return false
 	}
 
-	// 4. Secret-shaped name → secret.
-	for _, p := range secretNamePatterns {
-		if strings.Contains(upper, p) {
+	// 5. URL secrets: credentials in URL or name ends with _URL/_URI.
+	if strings.Contains(value, "://") {
+		// URL with embedded credentials (@) is definitely a secret.
+		if strings.Contains(value, "@") {
 			return true
 		}
-	}
-
-	// 5. URL with embedded credentials.
-	if strings.Contains(value, "://") && (strings.Contains(value, "@") || strings.Contains(upper, "URL") || strings.Contains(upper, "URI")) {
-		return true
+		// Name ending with _URL or _URI + a non-localhost URL → likely a secret.
+		if strings.HasSuffix(upper, "_URL") || strings.HasSuffix(upper, "_URI") {
+			return true
+		}
 	}
 
 	// Default: assume config (don't track unless we're confident it's a secret).
