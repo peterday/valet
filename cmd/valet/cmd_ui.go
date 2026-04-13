@@ -16,7 +16,14 @@ var uiPort int
 var uiCmd = &cobra.Command{
 	Use:   "ui",
 	Short: "Open the web dashboard",
-	Long:  "Starts a local web server and opens the valet dashboard in your browser.",
+	Long: `Starts a localhost web server and opens the valet dashboard in your browser.
+
+Store-centric navigation: secrets (All/per-env), team, environments,
+rotation, invites, activity. Supports adding secrets, managing users,
+creating/cloning environments, and pushing to git remotes.
+
+If run in a project directory with .env.example but no .valet.toml,
+shows an adopt banner to bootstrap the project.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := loadIdentity()
 		if err != nil {

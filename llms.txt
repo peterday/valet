@@ -2,50 +2,92 @@
 
 > Encrypted API key and secrets management for developers and teams.
 
-Valet encrypts secrets with age, stores them in git-safe `.valet/` directories, and injects them at runtime. No plaintext `.env` files, no cloud dependencies.
+Valet encrypts secrets with age, stores them in git-safe encrypted stores, and injects them at runtime. No plaintext `.env` files, no cloud dependencies.
 
-## Core workflow
+## Core primitives
+
+**Projects** have requirements — what secrets they need. Requirements are auto-detected from `.env.example` (if present), with optional overrides in `.valet.toml` (shared) and `.valet.local.toml` (personal, gitignored).
+
+**Stores** have secrets — encrypted values organized by environment and scope. Three types:
+- **Embedded** (`.valet/`) — lives in the project repo, encrypted values safe to commit
+- **Personal** (`~/.valet/stores/`) — your keys across all projects
+- **Team** (git-backed) — shared secrets across repos and teammates
+
+## Quick start
 
 ```
-valet init                                  # create encrypted store
-valet secret set OPENAI_API_KEY             # prompts for value
-valet require OPENAI_API_KEY --provider openai  # declare dependency
-valet require --provider stripe             # declare all keys from a provider
-valet drive -- npm start                    # run with secrets injected
+# New project:
+valet init && valet secret set OPENAI_API_KEY && valet drive -- npm start
+
+# Existing project with .env.example:
+valet adopt && valet drive -- npm start
+
+# Your team isn't on valet yet:
+valet adopt --personal my-keys && valet drive -- npm start
 ```
 
 ## Key commands
 
+### Projects & requirements
+- `valet adopt` — bootstrap from .env.example (matches providers, classifies secrets)
+- `valet adopt --personal <store>` — personal-only mode (zero repo changes)
+- `valet init` — create embedded store (auto-adopts .env.example if present)
+- `valet status` — show required vs available secrets
+- `valet setup` — interactive setup for missing secrets
+- `valet require KEY --provider X` — declare a requirement (override)
+- `valet require KEY --personal` — personal override (gitignored)
+- `valet migrate` — remove redundant .valet.toml entries when .env.example is source of truth
+- `valet ui` — web dashboard
+
+### Secrets
 - `valet secret set KEY` — store a secret (prompts interactively for value)
 - `valet secret set KEY --value val` — store with explicit value
-- `valet secret set KEY --local` — local override (gitignored, highest priority)
 - `valet secret set KEY -e '*'` — wildcard, applies to all environments
 - `valet secret list` — list secrets in current environment
 - `valet secret copy KEY --from store` — copy a key from another store
-- `valet require KEY --provider X` — declare a single requirement
-- `valet require --provider stripe` — declare all keys from a provider
-- `valet require --provider X --optional` — declare as optional
-- `valet status` — show required vs available secrets
-- `valet setup` — interactive setup for missing secrets
 - `valet resolve` — show all resolved secrets and their sources
-- `valet resolve --show` — reveal actual values
+
+### Running
 - `valet drive -- command` — run with secrets injected (alias: `valet run`)
-- `valet drive --set KEY=VALUE -- command` — run with ephemeral override
+- `valet drive -e prod -- command` — specific environment
 - `valet sync .env` — export to dotenv file
+
+### Stores & linking
 - `valet link store-name` — link a personal store (gitignored)
 - `valet link store-name --shared` — link a team store (committed)
-- `valet providers update` — fetch provider registry
-- `valet providers list` — list known providers
+- `valet store create my-keys` — create a personal store
+- `valet store create github:acme/secrets` — create a team store
 
-## Important rules
+### Team
+- `valet user add alice --github alice` — add by GitHub (fetches all SSH keys)
+- `valet user refresh alice` — sync SSH keys from GitHub
+- `valet env grant alice -e dev` — grant environment access
+- `valet env revoke alice -e prod --rotate` — revoke + flag for rotation
 
-- Never store secrets in `.env` files, source code, or environment variables directly.
-- Use `valet secret set KEY` (no --value) to prompt the user — this keeps secrets out of shell history.
-- Use `valet drive -- command` or `valet run -- command` to inject secrets at runtime.
-- Use `valet require` to declare dependencies so teammates know what's needed.
-- The `.valet/` directory is safe to commit (values are encrypted). The `.valet.local/` directory is gitignored.
+## Requirements model
 
-## Resolution order (highest priority first)
+Three layers, merged at runtime (highest priority wins):
+
+```
+.env.example                → auto-detected baseline (universal, heuristic-classified)
+.valet.toml [requires]      → shared overrides (committed, team-wide)
+.valet.local.toml [requires] → personal overrides (gitignored, your machine only)
+```
+
+Adding a new env var to `.env.example` is automatically picked up. Override entries are only needed when you disagree with auto-detection:
+
+```toml
+[requires.PORT]
+# presence alone = "track this even though heuristic said no"
+
+[requires.SENTRY_DSN]
+optional = true
+
+[requires.NODE_ENV]
+track = false   # explicitly exclude
+```
+
+## Secret resolution order (highest priority first)
 
 1. `--set` overrides (command line, ephemeral)
 2. `.valet.local/{env}` (local developer overrides)
@@ -57,27 +99,33 @@ valet drive -- npm start                    # run with secrets injected
 
 ## Project files
 
-- `.valet.toml` — project config, requirements, store links (committed)
+- `.env.example` — requirements source of truth (universal, not valet-specific)
+- `.valet.toml` — project config, requirement overrides, store links (committed)
 - `.valet/` — encrypted secret store (committed, values encrypted)
-- `.valet.local.toml` — personal store links (gitignored)
-- `.valet.local/` — local developer overrides (gitignored)
+- `.valet.local.toml` — personal store links + requirement overrides (gitignored)
+- `.valet.local/` — local developer value overrides (gitignored)
 
-## Providers
+## Important rules
 
-Providers (OpenAI, Anthropic, Stripe, Supabase, Fly.io, Exa, ElevenLabs) are matched by env var name. Multi-key providers like Stripe and Supabase can be declared with `valet require --provider stripe`.
+- Never store secrets in `.env` files, source code, or environment variables directly.
+- Use `valet secret set KEY` (no --value) to prompt the user — keeps secrets out of shell history.
+- Use `valet drive -- command` to inject secrets at runtime.
+- Use `valet adopt` to bootstrap from `.env.example` — no need for manual `valet require`.
+- The `.valet/` directory is safe to commit (values are encrypted).
 
 ## MCP integration
 
 If Valet's MCP server is installed (`valet mcp install`), these tools are available:
 
-- `valet_init` — initialize valet in a project, returns CLAUDE.md snippet to write
-- `valet_scan` — scan for .env files, report key names (not values), match against providers and wallet
-- `valet_status` — project config, environments, secrets, requirements (the "tell me everything" tool)
+- `valet_init` — initialize valet in a project, returns CLAUDE.md snippet
+- `valet_scan` — scan for .env files, match keys against providers and wallet
+- `valet_status` — project config, environments, secrets, requirements
 - `valet_wallet_search` — check if user already has a key in personal stores
-- `valet_link` — link a store to the project (all its keys become available, no secrets exposed)
-- `valet_copy` — copy a single key from a store into the project (re-encrypted, no secrets exposed)
-- `valet_require` — declare secret dependencies; use provider without key to declare all env vars from a provider (e.g. provider="stripe" declares 3 keys)
-- `valet_provider_search` — discover providers by name, category, use case, or keyword (e.g. "payments", "vector database", "email"). 70+ providers available
+- `valet_link` — link a store to the project
+- `valet_copy` — copy a single key from a store into the project
+- `valet_require` — declare secret dependencies
+- `valet_provider_search` — discover 70+ providers by name, category, or keyword
+- `valet_setup_web` — open browser-based setup page for entering values
 - `valet_help` — full CLI reference
 
 Workflow when adding a dependency that uses an external API:
@@ -85,6 +133,6 @@ Workflow when adding a dependency that uses an external API:
 2. `valet_require` with provider name to declare all requirements
 3. `valet_wallet_search` to check if user already has the keys
 4. If found: ask user to choose link or copy, then call `valet_link` or `valet_copy`
-5. If not found: ask user to type `! valet setup` to enter values interactively
+5. If not found: ask user to type `! valet setup` or use `valet_setup_web`
 
-MCP tools never expose secret values. To set secrets, ask the user to type `! valet secret set KEY` — the `!` prefix runs it interactively. Never use `--value` flag or `valet secret get`.
+MCP tools never expose secret values. To set secrets, ask the user to type `! valet secret set KEY` — the `!` prefix runs it interactively.

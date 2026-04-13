@@ -23,8 +23,8 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:     "valet",
-	Short:   "API key management for developers and teams",
-	Long:    "Valet manages secrets in encrypted stores — locally, in git repos, or in the cloud.",
+	Short:   "Encrypted secrets management for developers and teams",
+	Long:    "Valet manages secrets in encrypted stores. Projects declare requirements (from .env.example or .valet.toml), stores hold encrypted values. Inject at runtime with valet drive.",
 	Version: version,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Don't check for updates when running MCP server or update itself.

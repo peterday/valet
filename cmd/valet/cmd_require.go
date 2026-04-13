@@ -35,13 +35,17 @@ var (
 var requireCmd = &cobra.Command{
 	Use:   "require [KEY]",
 	Short: "Declare that this project needs a secret",
-	Long: `Add a requirement to .valet.toml. This declares what the project needs
-without storing any values. Teammates see requirements when they run 'valet setup'.
+	Long: `Add a requirement override to .valet.toml (shared) or .valet.local.toml (personal).
+
+If the project has a .env.example, requirements are auto-detected from it.
+Use this command to override the heuristics — opt keys in/out, set providers,
+mark as optional, or declare keys not in .env.example.
 
 Single key:
   valet require OPENAI_API_KEY --provider openai
   valet require DATABASE_URL --description "Postgres connection string"
   valet require SENTRY_DSN --optional
+  valet require PORT --personal                          # gitignored override
 
 All keys from a provider:
   valet require --provider stripe                        # all Stripe env vars
