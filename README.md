@@ -8,16 +8,30 @@ curl -fsSL https://raw.githubusercontent.com/peterday/valet/main/install.sh | sh
 
 ## 30-Second Start
 
+**New project:**
 ```bash
 valet identity init                                    # one time
 cd ~/code/my-api
 valet init                                             # creates encrypted store
 valet secret set OPENAI_API_KEY --value sk-abc123
-valet secret set DATABASE_URL --value postgres://localhost/mydb
 valet drive -- uvicorn main:app --reload                # run with secrets injected
 ```
 
-Secrets are encrypted in `.valet/`, injected at runtime by `valet drive`, and `.valet.toml` is safe to commit. Need a `.env` file? `valet sync .env`.
+**Existing project with `.env.example`:**
+```bash
+cd ~/code/team-project
+valet adopt                                            # reads .env.example, matches providers
+valet drive -- npm start                               # run with secrets injected
+```
+
+**Existing project, your team isn't ready for valet yet:**
+```bash
+cd ~/code/team-project
+valet adopt --personal my-keys                         # zero repo changes — gitignored only
+valet drive -- npm start                               # your secrets, their codebase
+```
+
+Secrets are encrypted, injected at runtime by `valet drive`, and never stored in plaintext.
 
 ## Stores
 
@@ -440,9 +454,106 @@ valet import .env --scope dev/runtime                  # import into specific sc
 
 Valet handles comments (`#`), quoted values (`"val"`), and `export` prefixes.
 
-## Declaring Requirements
+## Adopting Existing Projects
 
-`.valet.toml` declares what secrets a project needs. Committed to git — the contract.
+### Full adoption (you control the repo)
+
+```bash
+cd ~/code/my-project                                   # has .env.example
+valet adopt                                            # preview: detected secrets + provider matches
+```
+
+Valet reads `.env.example`, classifies each variable as secret or config, matches against the provider registry, and shows a preview. Accept to create an embedded store and `.valet.toml`. Existing `.env` values can be imported into the encrypted store.
+
+### Personal adoption (team uses .env files)
+
+```bash
+cd ~/code/team-project
+valet adopt --personal my-keys                         # links your personal store
+valet drive -- npm start                               # secrets injected from my-keys
+```
+
+Creates only `.valet.local.toml` (auto-added to `.gitignore`). No `.valet.toml`, no `.valet/` directory. The team sees zero changes. You get encrypted storage, multi-machine sync, and `valet drive`.
+
+When the team is ready to adopt:
+```bash
+valet init                                             # creates shared config
+valet adopt                                            # reads .env.example into requirements
+```
+
+Everyone's personal stores already have the values — they just keep working.
+
+### Requirements from .env.example
+
+When a project has a `.env.example`, valet reads it as the source of truth for requirements. No need to manually declare each secret with `valet require`.
+
+Three layers, merged at runtime (highest priority wins):
+
+```
+.env.example                →  auto-detected baseline (universal)
+.valet.toml [requires]      →  shared overrides (committed, team-wide)
+.valet.local.toml [requires] →  personal overrides (gitignored)
+```
+
+The shared/personal overrides only need entries when you disagree with the auto-detection:
+
+```toml
+# .valet.toml — only overrides, not a full copy
+[requires.PORT]
+# (presence alone = "track this even though heuristic said no")
+
+[requires.SENTRY_DSN]
+optional = true
+
+[requires.NODE_ENV]
+track = false   # explicitly exclude
+```
+
+Adding a new env var to `.env.example` is automatically picked up by valet — no need to also update `.valet.toml`.
+
+### Migrating from duplicate requirements
+
+If `.valet.toml` has requirements that duplicate `.env.example` (e.g. from an earlier `valet adopt`), migrate to the override model:
+
+```bash
+valet migrate                                          # shows what's redundant vs overrides
+valet migrate -y                                       # apply without confirmation
+```
+
+After migration, `.valet.toml` only contains meaningful overrides.
+
+## Web Dashboard
+
+```bash
+valet ui                                               # opens dashboard at localhost
+valet ui --port 8484                                   # specific port
+```
+
+Store-centric navigation: click into any store to see Secrets (All/per-env), Team, Environments, Rotation, Invites, Activity. Key features:
+
+- **All view** — expandable rows showing each secret across all environments. Green = set, red = missing, amber = needs rotation, lock = set but no access. Inline Set/Edit/Delete.
+- **Provider-driven add secret** — pick a provider (OpenAI, Stripe, ...) to see its env vars with prefix hints and setup links. Or manual mode for custom keys.
+- **Team** — add members via GitHub username (SSH keys fetched automatically), refresh keys, grant/revoke per environment. Multi-key support for multiple machines.
+- **Environments** — create, clone (with user access), delete. Per-env user + secrets view with inline grant/revoke.
+- **Push button** — amber indicator when git-backed stores have unpushed changes.
+- **Adopt banner** — detects `.env.example` in unconfigured projects and offers one-click adoption.
+
+## Multi-Key Users
+
+Users can have multiple SSH keys (e.g. work laptop + personal laptop). When added via GitHub, all SSH keys are fetched and stored as recipients.
+
+```bash
+valet user add alice --github alice                    # fetches ALL SSH keys
+valet user refresh alice                               # syncs: adds new keys, warns about removed
+valet user add-key bob --key "ssh-ed25519 ..."         # add a key manually
+valet user revoke-key alice ssh-rsa:AAAA...            # revoke a specific key
+```
+
+Each key has metadata: source (`github`, `age-identity`, `manual`), label (from GitHub API: creation date, last used).
+
+Refresh adds new keys automatically (low risk — just lets them decrypt from another machine). Removed keys are flagged but not auto-revoked (security decision requires explicit action).
+
+## Declaring Requirements
 
 ```bash
 valet require OPENAI_API_KEY --provider openai
@@ -572,16 +683,19 @@ Key rotation varies by provider — `valet rotate` guides you through the right 
 
 ```bash
 valet identity init                                    # generate age keypair (one time)
-valet init                                             # embedded store (default)
+valet init                                             # embedded store (auto-adopts .env.example)
 valet init --shared github:acme/secrets/api            # link team store + project
 valet init --local my-keys                             # link personal store
-valet init --shared github:acme/secrets --local my-keys  # both at once
+valet adopt                                            # read .env.example, match providers, create store
+valet adopt --personal my-keys                         # personal-only (zero repo changes)
+valet migrate                                          # remove redundant .valet.toml entries
 valet import .env                                      # import from .env file
-valet import .env -e prod --overwrite                  # import into prod, overwrite existing
 valet require KEY [--provider X] [--optional]          # declare one requirement
+valet require KEY --personal                           # declare in .valet.local.toml (gitignored)
 valet require --provider stripe                        # declare all keys from a provider
 valet setup                                            # interactive setup
 valet status                                           # show resolved/missing
+valet ui                                               # web dashboard
 ```
 
 ### Secrets
@@ -629,8 +743,12 @@ valet scope remove-recipient <user> --scope <path>     # fine-grained revoke
 ### Users & Invites
 
 ```bash
-valet user add <name> --github <handle>                # add by GitHub SSH key
+valet user add <name> --github <handle>                # add by GitHub (fetches ALL SSH keys)
 valet user add <name> --key <pubkey>                   # add by age public key
+valet user refresh <name>                              # sync SSH keys from GitHub
+valet user add-key <name> --key <pubkey>               # add additional key
+valet user revoke-key <name> <key-prefix>              # revoke a specific key
+valet user update <name> --github <handle>             # link GitHub to existing user
 valet user list                                        # list users
 valet invite create -e <env>                           # create invite (prints temp key)
 valet invite create -e dev -e staging --expires 3d     # multi-env, custom expiry
@@ -771,6 +889,7 @@ This registers Valet as an MCP server. Start a new session to use it.
 | `valet_copy` | Copy a single key from a store into the project |
 | `valet_require` | Declare secret dependencies — single key or entire provider |
 | `valet_provider_search` | Discover 70+ providers by name, category, or use case |
+| `valet_setup_web` | Open browser-based setup page for entering secret values |
 | `valet_help` | Full CLI reference (9 topics) |
 
 ### Typical AI workflow
@@ -825,6 +944,12 @@ make test        # all tests
 - [x] Provider registry — setup URLs, key validation, rotation guidance
 - [x] Store linking — key filtering, name mapping, environment mapping
 - [x] MCP server — AI tool integration (Claude Code, Cursor)
+- [x] Web dashboard (`valet ui`) — store-centric UI with secrets, team, environments
+- [x] Adopt flow — bootstrap from `.env.example` with provider matching
+- [x] Personal adoption — zero-repo-change mode for teams still on `.env`
+- [x] Three-layer requirements — `.env.example` + shared overrides + personal overrides
+- [x] Multi-key users — multiple SSH keys per user, GitHub key sync
+- [x] Migration — deduplicate `.valet.toml` when `.env.example` is source of truth
 - [ ] Provider automation — create/rotate keys via provider APIs (OpenAI, Fly.io)
 - [ ] Cloud-backed stores with audit logs
 - [ ] Kubernetes operator

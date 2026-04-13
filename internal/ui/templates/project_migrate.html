@@ -1,0 +1,102 @@
+{{define "content"}}
+<div class="max-w-4xl">
+  <div class="flex items-center gap-2 text-sm text-slate-400 mb-4">
+    <a href="/project" class="hover:text-white transition-colors">Project</a>
+    <span>/</span>
+    <span class="text-white">Migrate</span>
+  </div>
+
+  <h1 class="text-2xl font-semibold text-white mb-2">Migrate to .env.example as source of truth</h1>
+  <p class="text-sm text-slate-400 mb-6">
+    Reading <code class="text-xs text-indigo-300">{{.Plan.ExamplePath}}</code>
+  </p>
+
+  {{if .Plan.Redundant}}
+  <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden mb-4">
+    <div class="border-b border-slate-700 px-4 py-3">
+      <h2 class="text-sm font-medium text-white">Will be removed from .valet.toml ({{len .Plan.Redundant}})</h2>
+      <p class="text-xs text-slate-500 mt-0.5">These match what auto-detection produces from .env.example, so they're redundant.</p>
+    </div>
+    <table class="w-full">
+      <tbody>
+        {{range .Plan.Redundant}}
+        <tr class="border-b border-slate-700/50">
+          <td class="p-3 w-6 text-emerald-400">&#10003;</td>
+          <td class="p-3 font-mono text-sm text-white">{{.Key}}</td>
+          <td class="p-3 text-xs text-slate-500">redundant — auto-detected from .env.example</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .Plan.Overrides}}
+  <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden mb-4">
+    <div class="border-b border-slate-700 px-4 py-3">
+      <h2 class="text-sm font-medium text-white">Kept as overrides ({{len .Plan.Overrides}})</h2>
+      <p class="text-xs text-slate-500 mt-0.5">These differ from auto-detection — they stay in .valet.toml as overrides.</p>
+    </div>
+    <table class="w-full">
+      <tbody>
+        {{range .Plan.Overrides}}
+        <tr class="border-b border-slate-700/50">
+          <td class="p-3 w-6 text-amber-400">!</td>
+          <td class="p-3 font-mono text-sm text-white">{{.Key}}</td>
+          <td class="p-3 text-xs text-slate-400">{{.Reason}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .Plan.MissingFromExample}}
+  <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden mb-4">
+    <div class="border-b border-slate-700 px-4 py-3">
+      <h2 class="text-sm font-medium text-white">Not in .env.example ({{len .Plan.MissingFromExample}})</h2>
+      <p class="text-xs text-slate-500 mt-0.5">These keys aren't in .env.example, so .valet.toml is the only source — they stay.</p>
+    </div>
+    <table class="w-full">
+      <tbody>
+        {{range .Plan.MissingFromExample}}
+        <tr class="border-b border-slate-700/50">
+          <td class="p-3 w-6 text-slate-500">!</td>
+          <td class="p-3 font-mono text-sm text-white">{{.Key}}</td>
+          <td class="p-3 text-xs text-slate-500">only in .valet.toml</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .Plan.NewlyDetected}}
+  <div class="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4 mb-6">
+    <p class="text-sm text-emerald-400 mb-2">{{len .Plan.NewlyDetected}} key(s) in .env.example will be auto-tracked after migration</p>
+    <div class="flex flex-wrap gap-1.5">
+      {{range .Plan.NewlyDetected}}
+      <span class="text-xs font-mono bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">{{.}}</span>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+
+  {{if .Plan.Redundant}}
+  <form method="POST" action="/project/migrate" class="bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    <div class="flex gap-3">
+      <button type="submit" class="px-5 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
+        Apply migration
+      </button>
+      <a href="/project" class="px-5 py-2 text-slate-400 hover:text-white text-sm">Cancel</a>
+    </div>
+  </form>
+  {{else}}
+  <div class="bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <p class="text-sm text-slate-400">Nothing to migrate — your .valet.toml is already minimal.</p>
+    <a href="/project" class="inline-block mt-3 px-4 py-2 text-slate-400 hover:text-white text-sm">Back to Project</a>
+  </div>
+  {{end}}
+</div>
+{{end}}

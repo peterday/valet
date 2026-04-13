@@ -69,15 +69,15 @@ const valetTomlHeader = `# Valet — encrypted secrets management
 # Docs: https://github.com/peterday/valet
 #
 # Quick reference:
-#   valet secret set <KEY>        Store a secret (prompts for value)
-#   valet secret list             List secrets in current environment
+#   valet drive -- <command>      Run with secrets injected
 #   valet status                  Check required vs available secrets
-#   valet setup                   Interactive setup for missing secrets
-#   valet drive -- <command>      Run a command with secrets injected
-#   valet require <KEY>           Declare a secret this project needs
-#   valet help                    Full command reference
+#   valet ui                      Open web dashboard
+#   valet adopt                   Bootstrap from .env.example
+#   valet secret set <KEY>        Store a secret
+#   valet require <KEY>           Declare a requirement (override)
 #
-# Do not store secrets in .env files or source code. Use valet.
+# Requirements are auto-detected from .env.example when present.
+# This file stores project config and requirement overrides only.
 
 `
 
@@ -102,6 +102,30 @@ func FindValetToml(dir string) (string, error) {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return "", fmt.Errorf("no %s found in %s or any parent directory", ValetToml, dir)
+		}
+		dir = parent
+	}
+}
+
+// FindValetConfig walks up from dir looking for .valet.toml OR .valet.local.toml.
+// Returns (tomlPath, isLocalOnly, err). When isLocalOnly is true, only
+// .valet.local.toml was found (personal-only mode — no committed config).
+func FindValetConfig(dir string) (string, bool, error) {
+	for {
+		// Prefer .valet.toml.
+		path := filepath.Join(dir, ValetToml)
+		if _, err := os.Stat(path); err == nil {
+			return path, false, nil
+		}
+		// Fall back to .valet.local.toml.
+		localPath := filepath.Join(dir, ValetLocalToml)
+		if _, err := os.Stat(localPath); err == nil {
+			return localPath, true, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false, fmt.Errorf("no %s or %s found in %s or any parent directory", ValetToml, ValetLocalToml, dir)
 		}
 		dir = parent
 	}

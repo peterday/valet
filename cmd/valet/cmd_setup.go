@@ -37,9 +37,13 @@ Unlinked stores with matching secrets are offered for linking.`,
 			return err
 		}
 
-		if len(vc.Requires) == 0 {
-			fmt.Println("No requirements declared in .valet.toml")
-			fmt.Println("Add requirements with: valet require OPENAI_API_KEY --provider openai")
+		// Load personal overrides + resolve full requirements list.
+		lc, _ := config.LoadLocalConfig(tomlDir)
+		requirements := store.ResolveRequirements(tomlDir, vc, lc)
+
+		if len(requirements) == 0 {
+			fmt.Println("No requirements found.")
+			fmt.Println("Add a .env.example file or run: valet require OPENAI_API_KEY --provider openai")
 			return nil
 		}
 
@@ -82,13 +86,13 @@ Unlinked stores with matching secrets are offered for linking.`,
 
 		// Show already-resolved secrets first (no interaction needed).
 		hasResolved := false
-		for name := range vc.Requires {
-			if rs, found := resolved[name]; found {
+		for _, req := range requirements {
+			if rs, found := resolved[req.Key]; found {
 				if !hasResolved {
 					fmt.Println("\nAlready configured:")
 					hasResolved = true
 				}
-				fmt.Printf("  %-30s ✓ from %s\n", name, rs.StoreName)
+				fmt.Printf("  %-30s ✓ from %s\n", req.Key, rs.StoreName)
 				autoResolved++
 			}
 		}
@@ -99,9 +103,13 @@ Unlinked stores with matching secrets are offered for linking.`,
 			req  domain.Requirement
 		}
 		var pending []pendingSecret
-		for name, req := range vc.Requires {
-			if _, found := resolved[name]; !found {
-				pending = append(pending, pendingSecret{name, req})
+		for _, req := range requirements {
+			if _, found := resolved[req.Key]; !found {
+				pending = append(pending, pendingSecret{req.Key, domain.Requirement{
+					Provider:    req.Provider,
+					Description: req.Description,
+					Optional:    req.Optional,
+				}})
 			}
 		}
 

@@ -79,18 +79,35 @@
       </table>
     </div>
 
-    {{if .Result.HasExistingEnv}}
-    <div class="mb-4 bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <div class="mb-4 bg-slate-800 rounded-lg border border-slate-700 p-4 space-y-3">
+      {{if .Result.HasExistingEnv}}
       <label class="flex items-center gap-2 cursor-pointer">
         <input type="checkbox" name="import_env" checked
                class="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
         <span class="text-sm text-white">Import existing values from <code class="text-xs text-indigo-300">{{.Result.ExistingEnvPath}}</code></span>
       </label>
-      <p class="text-xs text-slate-500 ml-6 mt-0.5">
-        Values for tracked keys will be encrypted into the embedded store.
-      </p>
+      {{end}}
+
+      <div>
+        <p class="text-sm text-white mb-2">Save overrides to:</p>
+        <label class="flex items-start gap-2 cursor-pointer mb-1.5">
+          <input type="radio" name="override_scope" value="shared" checked
+                 class="mt-1 bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
+          <div>
+            <span class="text-sm text-white">Shared</span>
+            <span class="text-xs text-slate-500 ml-1">— <code>.valet.toml</code> (committed, applies to whole team)</span>
+          </div>
+        </label>
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="override_scope" value="personal"
+                 class="mt-1 bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
+          <div>
+            <span class="text-sm text-white">Personal</span>
+            <span class="text-xs text-slate-500 ml-1">— <code>.valet.local.toml</code> (gitignored, only your machine)</span>
+          </div>
+        </label>
+      </div>
     </div>
-    {{end}}
 
     <div class="flex gap-3">
       <button type="submit" class="px-5 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">

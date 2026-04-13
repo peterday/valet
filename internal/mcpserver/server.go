@@ -831,8 +831,11 @@ func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		}
 	}
 
-	// Requirements check.
-	if len(vc.Requires) > 0 {
+	// Requirements check (.env.example + .valet.toml + .valet.local.toml).
+	localCfg, _ := config.LoadLocalConfig(tomlDir)
+	requirements := store.ResolveRequirements(tomlDir, vc, localCfg)
+
+	if len(requirements) > 0 {
 		stores, err := openAllProjectStores(id)
 		if err != nil {
 			return errResult("opening stores: %v", err)
@@ -841,17 +844,16 @@ func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 
 		fmt.Fprintf(&b, "\nRequirements (%s):\n", env)
 		missing := 0
-		for name, r := range vc.Requires {
-			if rs, found := resolved[name]; found {
-				fmt.Fprintf(&b, "  ✓ %-28s from %s/%s\n", name, rs.StoreName, rs.ScopePath)
-			} else if r.Optional {
-				fmt.Fprintf(&b, "  - %-28s optional, not set\n", name)
+		for _, req := range requirements {
+			if rs, found := resolved[req.Key]; found {
+				fmt.Fprintf(&b, "  ✓ %-28s from %s/%s\n", req.Key, rs.StoreName, rs.ScopePath)
+			} else if req.Optional {
+				fmt.Fprintf(&b, "  - %-28s optional, not set\n", req.Key)
 			} else {
 				hint := ""
-				// Check provider registry for setup guidance.
-				p := provider.FindByEnvVar(name)
-				if p == nil && r.Provider != "" {
-					p = provider.Get(r.Provider)
+				p := provider.FindByEnvVar(req.Key)
+				if p == nil && req.Provider != "" {
+					p = provider.Get(req.Provider)
 				}
 				if p != nil {
 					hint = fmt.Sprintf(" [%s — %s]", p.DisplayName, p.SetupURL)
@@ -859,7 +861,7 @@ func statusHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 						hint = fmt.Sprintf(" [%s — %s, free: %s]", p.DisplayName, p.SetupURL, p.FreeTier)
 					}
 				}
-				fmt.Fprintf(&b, "  ✗ %-28s MISSING%s\n", name, hint)
+				fmt.Fprintf(&b, "  ✗ %-28s MISSING%s\n", req.Key, hint)
 				missing++
 			}
 		}
