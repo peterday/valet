@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/config"
@@ -10,11 +11,25 @@ import (
 	"github.com/peterday/valet/internal/provider"
 )
 
+// writeRequires writes either .valet.toml (shared) or .valet.local.toml (personal),
+// based on which config object is non-nil.
+func writeRequires(tomlPath, tomlDir string, vc *domain.ValetConfig, lc *domain.LocalConfig) error {
+	if lc != nil {
+		if err := config.WriteLocalConfig(tomlDir, lc); err != nil {
+			return err
+		}
+		ensureInGitignore(tomlDir, config.ValetLocalToml)
+		return nil
+	}
+	return config.WriteValetToml(tomlPath, vc)
+}
+
 var (
 	requireProviderFlag    string
 	requireDescriptionFlag string
 	requireOptionalFlag    bool
 	requireScopeFlag       string
+	requirePersonalFlag    bool
 )
 
 var requireCmd = &cobra.Command{
@@ -42,14 +57,30 @@ All keys from a provider:
 		if err != nil {
 			return fmt.Errorf("no .valet.toml found — run 'valet init' first")
 		}
+		tomlDir := filepath.Dir(tomlPath)
 
 		vc, err := config.LoadValetToml(tomlPath)
 		if err != nil {
 			return err
 		}
 
-		if vc.Requires == nil {
-			vc.Requires = make(map[string]domain.Requirement)
+		// In personal mode, write to .valet.local.toml instead of .valet.toml.
+		var localCfg *domain.LocalConfig
+		var requires map[string]domain.Requirement
+		if requirePersonalFlag {
+			localCfg, _ = config.LoadLocalConfig(tomlDir)
+			if localCfg == nil {
+				localCfg = &domain.LocalConfig{}
+			}
+			if localCfg.Requires == nil {
+				localCfg.Requires = make(map[string]domain.Requirement)
+			}
+			requires = localCfg.Requires
+		} else {
+			if vc.Requires == nil {
+				vc.Requires = make(map[string]domain.Requirement)
+			}
+			requires = vc.Requires
 		}
 
 		// Provider-only mode: declare all env vars from the provider.
@@ -69,9 +100,9 @@ All keys from a provider:
 				if requireScopeFlag != "" {
 					req.Scope = requireScopeFlag
 				}
-				mergeRequirement(vc.Requires, ev.Name, req)
+				mergeRequirement(requires, ev.Name, req)
 			}
-			if err := config.WriteValetToml(tomlPath, vc); err != nil {
+			if err := writeRequires(tomlPath, tomlDir, vc, localCfg); err != nil {
 				return err
 			}
 			for _, ev := range p.EnvVars {
@@ -92,9 +123,9 @@ All keys from a provider:
 			Optional:    requireOptionalFlag,
 			Scope:       requireScopeFlag,
 		}
-		mergeRequirement(vc.Requires, key, req)
+		mergeRequirement(requires, key, req)
 
-		if err := config.WriteValetToml(tomlPath, vc); err != nil {
+		if err := writeRequires(tomlPath, tomlDir, vc, localCfg); err != nil {
 			return err
 		}
 
@@ -134,5 +165,6 @@ func init() {
 	requireCmd.Flags().StringVar(&requireDescriptionFlag, "description", "", "human-readable description")
 	requireCmd.Flags().BoolVar(&requireOptionalFlag, "optional", false, "mark as optional")
 	requireCmd.Flags().StringVar(&requireScopeFlag, "scope", "", "default scope for this secret (e.g. db, runtime)")
+	requireCmd.Flags().BoolVar(&requirePersonalFlag, "personal", false, "save to .valet.local.toml (gitignored) instead of .valet.toml")
 	rootCmd.AddCommand(requireCmd)
 }

@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/peterday/valet/internal/config"
+	"github.com/peterday/valet/internal/domain"
+	"github.com/peterday/valet/internal/identity"
 	"github.com/peterday/valet/internal/store"
 )
 
@@ -65,16 +67,18 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 		resolved = make(map[string]store.ResolvedSecret)
 	}
 
+	requirements := store.ResolveRequirements(s.projectDir, s.valetCfg, s.localCfg)
+
 	var rows []requirementRow
-	for key, req := range s.valetCfg.Requires {
+	for _, req := range requirements {
 		row := requirementRow{
-			Key:         key,
+			Key:         req.Key,
 			Provider:    req.Provider,
 			Description: req.Description,
 			Optional:    req.Optional,
 		}
 
-		if rs, ok := resolved[key]; ok {
+		if rs, ok := resolved[req.Key]; ok {
 			row.Status = "ok"
 			row.Source = rs.StoreName + "/" + envFromScope(rs.ScopePath)
 			if rs.Wildcard {
@@ -93,17 +97,68 @@ func (s *Server) handleProject(w http.ResponseWriter, r *http.Request) {
 
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 
+	// Check if a migrate banner should show: project has .env.example AND
+	// .valet.toml has redundant requirements that could be auto-detected.
+	canMigrate := false
+	migrateRedundantCount := 0
+	if store.HasEnvExampleRequirements(s.projectDir) {
+		plan := store.PlanMigration(s.projectDir, s.valetCfg)
+		migrateRedundantCount = len(plan.Redundant)
+		canMigrate = migrateRedundantCount > 0
+	}
+
 	s.render(w, "project.html", map[string]any{
-		"Page":         "project",
-		"Tab":          "requirements",
-		"HasProject":   true,
-		"ProjectName":  s.valetCfg.Project,
-		"ProjectDir":   s.projectDir,
-		"StoreName":    s.valetCfg.Store,
-		"ActiveEnv":    env,
-		"Environments": envs,
-		"Requirements": rows,
+		"Page":            "project",
+		"Tab":             "requirements",
+		"HasProject":      true,
+		"ProjectName":     s.valetCfg.Project,
+		"ProjectDir":      s.projectDir,
+		"StoreName":       s.valetCfg.Store,
+		"ActiveEnv":       env,
+		"Environments":    envs,
+		"Requirements":    rows,
+		"CanMigrate":      canMigrate,
+		"MigrateCount":    migrateRedundantCount,
 	})
+}
+
+func (s *Server) handleProjectMigratePreview(w http.ResponseWriter, r *http.Request) {
+	if s.valetCfg == nil {
+		http.Error(w, "no project loaded", http.StatusBadRequest)
+		return
+	}
+
+	plan := store.PlanMigration(s.projectDir, s.valetCfg)
+
+	s.render(w, "project_migrate.html", map[string]any{
+		"Page":       "project",
+		"ProjectDir": s.projectDir,
+		"Plan":       plan,
+	})
+}
+
+func (s *Server) handleProjectMigrateApply(w http.ResponseWriter, r *http.Request) {
+	if s.valetCfg == nil {
+		http.Error(w, "no project loaded", http.StatusBadRequest)
+		return
+	}
+
+	plan := store.PlanMigration(s.projectDir, s.valetCfg)
+	if len(plan.Redundant) == 0 {
+		http.Redirect(w, r, "/project", http.StatusFound)
+		return
+	}
+
+	updated := plan.Apply(s.valetCfg)
+	tomlPath := filepath.Join(s.projectDir, config.ValetToml)
+	if err := config.WriteValetToml(tomlPath, updated); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Reload project context.
+	s.loadProjectConfig()
+	http.Redirect(w, r, "/project", http.StatusFound)
 }
 
 func (s *Server) handleProjectAdoptPreview(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +195,7 @@ func (s *Server) handleProjectAdoptApply(w http.ResponseWriter, r *http.Request)
 		dir = s.projectDir
 	}
 	importEnv := r.FormValue("import_env") == "on"
+	personalScope := r.FormValue("override_scope") == "personal"
 
 	result, err := store.AnalyzeForAdopt(dir)
 	if err != nil {
@@ -147,30 +203,38 @@ func (s *Server) handleProjectAdoptApply(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Apply user's selection: only track keys they checked.
+	// Determine user selections vs heuristic defaults — only deviations
+	// become overrides.
 	tracked := make(map[string]bool)
 	for _, k := range r.Form["track"] {
 		tracked[k] = true
 	}
 
-	// Filter requirements + promote any non-secrets the user opted to track.
-	var newReqs []store.DetectedRequirement
+	// Heuristic defaults: requirements = checked, non-secrets = unchecked.
+	heuristicTracked := make(map[string]bool)
 	for _, req := range result.Requirements {
-		if tracked[req.Key] {
-			newReqs = append(newReqs, req)
-		}
+		heuristicTracked[req.Key] = true
 	}
+
+	// User opt-ins (heuristic said no, user said yes) → write override.
+	// User opt-outs (heuristic said yes, user said no) → write Track:false override.
+	overrides := make(map[string]domain.Requirement)
 	for _, c := range result.NonSecrets {
 		if tracked[c.Key] {
-			newReqs = append(newReqs, store.DetectedRequirement{
-				Key:              c.Key,
-				PlaceholderValue: c.Value,
-			})
+			t := true
+			overrides[c.Key] = domain.Requirement{Track: &t}
 		}
 	}
-	result.Requirements = newReqs
+	for _, req := range result.Requirements {
+		if !tracked[req.Key] {
+			f := false
+			overrides[req.Key] = domain.Requirement{Track: &f}
+		}
+	}
 
-	if err := result.Apply(dir, s.id, importEnv); err != nil {
+	// Apply: create embedded store, write overrides (if any) to chosen scope,
+	// optionally import existing .env values.
+	if err := applyAdopt(dir, s.id, result, overrides, personalScope, importEnv); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -180,6 +244,110 @@ func (s *Server) handleProjectAdoptApply(w http.ResponseWriter, r *http.Request)
 	s.loadProjectConfig()
 
 	http.Redirect(w, r, "/project/setup", http.StatusFound)
+}
+
+// applyAdopt creates the embedded store, writes overrides to the chosen
+// config file (.valet.toml or .valet.local.toml), and optionally imports
+// values from .env.
+func applyAdopt(dir string, id *identity.Identity, result *store.AdoptResult, overrides map[string]domain.Requirement, personalScope bool, importEnv bool) error {
+	// 1. Create embedded store if missing.
+	storeRoot := filepath.Join(dir, ".valet")
+	if _, err := os.Stat(filepath.Join(storeRoot, "store.json")); os.IsNotExist(err) {
+		s, err := store.Create(storeRoot, "default", domain.StoreTypeEmbedded, id)
+		if err != nil {
+			return fmt.Errorf("creating embedded store: %w", err)
+		}
+		s.AddUser("me", "", id.PublicKey)
+		s.CreateProject("default")
+		s.CreateEnvironment("default", "dev")
+		s.CreateScope("default", "dev/default")
+	}
+
+	// 2. Ensure .valet.toml exists with basic project info.
+	tomlPath := filepath.Join(dir, config.ValetToml)
+	vc, err := config.LoadValetToml(tomlPath)
+	if err != nil {
+		vc = &domain.ValetConfig{
+			Store:      ".",
+			Project:    "default",
+			DefaultEnv: "dev",
+		}
+	}
+
+	// 3. Write overrides to chosen scope.
+	if len(overrides) > 0 {
+		if personalScope {
+			lc, _ := config.LoadLocalConfig(dir)
+			if lc == nil {
+				lc = &domain.LocalConfig{}
+			}
+			if lc.Requires == nil {
+				lc.Requires = make(map[string]domain.Requirement)
+			}
+			for k, v := range overrides {
+				lc.Requires[k] = v
+			}
+			if err := config.WriteLocalConfig(dir, lc); err != nil {
+				return err
+			}
+			ensureLineInFile(filepath.Join(dir, ".gitignore"), config.ValetLocalToml)
+		} else {
+			if vc.Requires == nil {
+				vc.Requires = make(map[string]domain.Requirement)
+			}
+			for k, v := range overrides {
+				vc.Requires[k] = v
+			}
+		}
+	}
+
+	if err := config.WriteValetToml(tomlPath, vc); err != nil {
+		return err
+	}
+
+	// 4. Import existing .env values into the embedded store.
+	if importEnv && result.HasExistingEnv {
+		st, err := store.Open(storeRoot, id)
+		if err != nil {
+			return fmt.Errorf("opening store: %w", err)
+		}
+		// Build the merged requirements list to know what we should import.
+		localCfg, _ := config.LoadLocalConfig(dir)
+		merged := store.ResolveRequirements(dir, vc, localCfg)
+		for _, req := range merged {
+			val, ok := result.ExistingValues[req.Key]
+			if !ok || val == "" {
+				continue
+			}
+			scopePath := vc.DefaultEnv + "/default"
+			if req.Provider != "" {
+				_ = st.SetSecretWithProvider("default", scopePath, req.Key, val, req.Provider)
+			} else {
+				_ = st.SetSecret("default", scopePath, req.Key, val)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ensureLineInFile appends a line to a file if it's not already present.
+func ensureLineInFile(path, line string) {
+	data, _ := os.ReadFile(path)
+	for _, existing := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(existing) == line {
+			return
+		}
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		f.WriteString("\n")
+	}
+	f.WriteString(line + "\n")
 }
 
 func (s *Server) handleProjectPickFolder(w http.ResponseWriter, r *http.Request) {
@@ -342,10 +510,12 @@ func (s *Server) handleProjectSetup(w http.ResponseWriter, r *http.Request) {
 	linkedStores := s.openAllStores()
 	resolved, _ := store.ResolveAllSecrets(linkedStores, env)
 
+	requirements := store.ResolveRequirements(s.projectDir, s.valetCfg, s.localCfg)
+
 	var cards []setupCard
-	for key, req := range s.valetCfg.Requires {
+	for _, req := range requirements {
 		// Skip already-resolved keys.
-		if _, ok := resolved[key]; ok {
+		if _, ok := resolved[req.Key]; ok {
 			continue
 		}
 
@@ -354,7 +524,7 @@ func (s *Server) handleProjectSetup(w http.ResponseWriter, r *http.Request) {
 			allowed := strings.Split(keysFilter, ",")
 			found := false
 			for _, a := range allowed {
-				if strings.TrimSpace(a) == key {
+				if strings.TrimSpace(a) == req.Key {
 					found = true
 					break
 				}
@@ -365,7 +535,7 @@ func (s *Server) handleProjectSetup(w http.ResponseWriter, r *http.Request) {
 		}
 
 		card := setupCard{
-			Key:         key,
+			Key:         req.Key,
 			Description: req.Description,
 			Optional:    req.Optional,
 		}
@@ -384,7 +554,7 @@ func (s *Server) handleProjectSetup(w http.ResponseWriter, r *http.Request) {
 				}
 				// Find the prefix for this key.
 				for _, ev := range prov.EnvVars {
-					if ev.Name == key {
+					if ev.Name == req.Key {
 						prefixes := ev.AllPrefixes()
 						if len(prefixes) > 0 {
 							card.Format = prefixes[0] + "..."
@@ -430,26 +600,24 @@ func (s *Server) handleProjectSetupSave(w http.ResponseWriter, r *http.Request) 
 	env := s.valetCfg.DefaultEnv
 	scopePath := env + "/default"
 
+	requirements := store.ResolveRequirements(s.projectDir, s.valetCfg, s.localCfg)
+
 	var savedKeys []string
-	for key := range s.valetCfg.Requires {
-		value := r.FormValue("secret_" + key)
+	for _, req := range requirements {
+		value := r.FormValue("secret_" + req.Key)
 		if value == "" {
 			continue
 		}
 
-		// Look up provider for metadata.
-		req := s.valetCfg.Requires[key]
-		providerName := req.Provider
-
-		if providerName != "" {
-			err = embedded.SetSecretWithProvider(project, scopePath, key, value, providerName)
+		if req.Provider != "" {
+			err = embedded.SetSecretWithProvider(project, scopePath, req.Key, value, req.Provider)
 		} else {
-			err = embedded.SetSecret(project, scopePath, key, value)
+			err = embedded.SetSecret(project, scopePath, req.Key, value)
 		}
 		if err != nil {
 			continue
 		}
-		savedKeys = append(savedKeys, key)
+		savedKeys = append(savedKeys, req.Key)
 	}
 
 	// Notify MCP channel if waiting.

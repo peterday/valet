@@ -156,12 +156,20 @@ type Scope struct {
 	Recipients []ManifestRecipient `json:"recipients"`
 }
 
-// Requirement declares a secret that a project needs.
+// Requirement declares a secret that a project needs, or overrides how
+// auto-detected requirements are handled.
+//
+// In a project with a .env.example, Requirement entries in .valet.toml
+// (or .valet.local.toml) act as overrides — they layer on top of the
+// auto-detected requirements rather than replacing them.
 type Requirement struct {
 	Provider    string `toml:"provider,omitempty"`
 	Description string `toml:"description,omitempty"`
 	Optional    bool   `toml:"optional,omitempty"`
-	Scope       string `toml:"scope,omitempty"` // default scope for this secret (e.g. "runtime", "db")
+	Scope       string `toml:"scope,omitempty"` // default scope for this secret
+	// Track explicitly opts a key in (when heuristic said no) or
+	// out (when heuristic said yes). nil = no opinion.
+	Track *bool `toml:"track,omitempty"`
 }
 
 // KeyMapping maps a local key name to a remote key name in a linked store.
@@ -238,7 +246,8 @@ type ValetConfig struct {
 
 // LocalConfig is the per-developer .valet.local.toml (gitignored).
 type LocalConfig struct {
-	Stores []StoreLink `toml:"stores,omitempty"` // personal store links
+	Stores   []StoreLink            `toml:"stores,omitempty"`   // personal store links
+	Requires map[string]Requirement `toml:"requires,omitempty"` // personal requirement overrides
 }
 
 // Invite is a pending invitation stored in .valet/invites/.

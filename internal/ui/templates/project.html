@@ -81,6 +81,32 @@
     <a href="/project/links" class="pb-2 border-b-2 {{if eq .Tab "links"}}border-indigo-500 text-white{{else}}border-transparent text-slate-400 hover:text-white{{end}} transition-colors">Linked Stores</a>
   </div>
 
+  <!-- Migrate banner -->
+  {{if .CanMigrate}}
+  <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-4">
+    <div class="flex items-start gap-3">
+      <svg class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <div class="flex-1">
+        <p class="text-sm text-white">
+          <span class="font-medium">{{.MigrateCount}} entr{{if eq .MigrateCount 1}}y{{else}}ies{{end}} in <code class="text-xs">.valet.toml</code> can be removed</span>
+          — they duplicate what's auto-detected from <code class="text-xs">.env.example</code>.
+        </p>
+        <p class="text-xs text-slate-400 mt-1">
+          Migrating keeps <code>.valet.toml</code> small (only overrides) and lets you add new env vars by editing <code>.env.example</code> directly.
+        </p>
+        <a href="/project/migrate-preview"
+           class="inline-block mt-2 px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-md text-xs hover:bg-amber-500 hover:text-white transition-colors">
+          Preview migration &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+  {{end}}
+
   <!-- Environment selector -->
   {{if .Environments}}
   <div class="flex gap-2 mb-6">

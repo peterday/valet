@@ -3,11 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
-
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/peterday/valet/internal/config"
+	"github.com/peterday/valet/internal/domain"
 	"github.com/peterday/valet/internal/store"
 )
 
@@ -20,30 +21,48 @@ var statusCmd = &cobra.Command{
 			return err
 		}
 
-		tomlPath, err := config.FindValetToml(cwd)
+		configPath, isLocalOnly, err := config.FindValetConfig(cwd)
 		if err != nil {
-			return fmt.Errorf("no .valet.toml found — run 'valet init' first")
+			return fmt.Errorf("no .valet.toml or .valet.local.toml found — run 'valet init' or 'valet adopt --personal <store>'")
+		}
+		configDir := filepath.Dir(configPath)
+
+		var vc *domain.ValetConfig
+		if isLocalOnly {
+			vc = &domain.ValetConfig{DefaultEnv: "dev"}
+		} else {
+			vc, err = config.LoadValetToml(configPath)
+			if err != nil {
+				return err
+			}
 		}
 
-		vc, err := config.LoadValetToml(tomlPath)
-		if err != nil {
-			return err
+		if !isLocalOnly {
+			fmt.Printf("Project: %s\n", vc.Project)
+			fmt.Printf("Store:   %s\n", vc.Store)
+			if len(vc.Stores) > 0 {
+				fmt.Printf("Linked:  %s\n", strings.Join(store.StoreLinkNames(vc.Stores), ", "))
+			}
+		} else {
+			fmt.Println("Mode: personal (only .valet.local.toml)")
 		}
 
-		fmt.Printf("Project: %s\n", vc.Project)
-		fmt.Printf("Store:   %s\n", vc.Store)
-		if len(vc.Stores) > 0 {
-			fmt.Printf("Linked:  %s\n", strings.Join(store.StoreLinkNames(vc.Stores), ", "))
-		}
-
-		env := "dev"
+		env := vc.DefaultEnv
 		if envFlag != "" {
 			env = envFlag
 		}
 
-		if len(vc.Requires) == 0 {
-			fmt.Println("\nNo requirements declared in .valet.toml")
-			fmt.Println("Add requirements with: valet require OPENAI_API_KEY --provider openai")
+		lc, _ := config.LoadLocalConfig(configDir)
+		if isLocalOnly && lc != nil && len(lc.Stores) > 0 {
+			fmt.Printf("Store:   %s (personal)\n", lc.Stores[0].Name)
+		}
+
+		// Resolve requirements from .env.example + .valet.toml + .valet.local.toml.
+		requirements := store.ResolveRequirements(configDir, vc, lc)
+
+		if len(requirements) == 0 {
+			fmt.Println("\nNo requirements found.")
+			fmt.Println("Add a .env.example file or run: valet require OPENAI_API_KEY --provider openai")
 			return nil
 		}
 
@@ -63,13 +82,13 @@ var statusCmd = &cobra.Command{
 		fmt.Printf("  %-30s %-30s %s\n", "------", "------", "------")
 
 		missing := 0
-		for name, req := range vc.Requires {
-			if rs, found := resolved[name]; found {
-				fmt.Printf("  %-30s %-30s %s\n", name, rs.StoreName+"/"+rs.ScopePath, green("ok"))
+		for _, req := range requirements {
+			if rs, found := resolved[req.Key]; found {
+				fmt.Printf("  %-30s %-30s %s\n", req.Key, rs.StoreName+"/"+rs.ScopePath, green("ok"))
 			} else if req.Optional {
-				fmt.Printf("  %-30s %-30s %s\n", name, "-", yellow("optional"))
+				fmt.Printf("  %-30s %-30s %s\n", req.Key, "-", yellow("optional"))
 			} else {
-				fmt.Printf("  %-30s %-30s %s\n", name, "-", red("missing"))
+				fmt.Printf("  %-30s %-30s %s\n", req.Key, "-", red("missing"))
 				missing++
 			}
 		}
