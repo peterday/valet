@@ -43,6 +43,69 @@ Two primitives:
 
 **Environments** (`dev`, `staging`, `prod`) hold different values for the same keys. **Scopes** are fine-grained access boundaries within an environment — most projects just use the default and never think about them.
 
+## Web Dashboard
+
+```bash
+valet ui                                               # opens dashboard at localhost
+valet ui --port 8484                                   # specific port
+```
+
+Store-centric navigation: click into any store to see Secrets (All/per-env), Team, Environments, Rotation, Invites, Activity. Key features:
+
+- **All view** — expandable rows showing each secret across all environments. Green = set, red = missing, amber = needs rotation, lock = set but no access. Inline Set/Edit/Delete.
+- **Provider-driven add secret** — pick a provider (OpenAI, Stripe, ...) to see its env vars with prefix hints and setup links.
+- **Team management** — add members via GitHub username (SSH keys fetched automatically), refresh keys, grant/revoke per environment.
+- **Environments** — create, clone (with user access), delete. Per-env user + secrets view.
+- **Push button** — amber indicator when git-backed stores have unpushed changes.
+- **Adopt banner** — detects `.env.example` in unconfigured projects and offers one-click adoption.
+
+## AI Tool Integration (MCP)
+
+Valet includes a [Model Context Protocol](https://modelcontextprotocol.io/) server that lets AI coding tools (Claude Code, Cursor, etc.) manage secrets directly — without exposing secret values to the AI.
+
+```bash
+valet mcp install                                      # auto-detect and configure
+```
+
+| Tool | Purpose |
+|------|---------|
+| `valet_init` | Initialize Valet in a project |
+| `valet_scan` | Scan for .env files, match keys against providers and wallet |
+| `valet_status` | Project config, environments, secrets, requirements |
+| `valet_wallet_search` | Check if user already has a key in their personal stores |
+| `valet_link` | Link a store to the project |
+| `valet_copy` | Copy a single key from a store into the project |
+| `valet_require` | Declare secret dependencies |
+| `valet_provider_search` | Discover 70+ providers by name, category, or use case |
+| `valet_setup_web` | Open browser-based setup page for entering values |
+| `valet_help` | Full CLI reference |
+
+Secrets never pass through the AI context. Values are entered via `! valet setup` (interactive terminal) or `valet_setup_web` (browser form). See [full MCP docs](#mcp-details) below.
+
+## Sharing with a Team
+
+The easiest way: add teammates by GitHub username. Valet fetches their SSH keys automatically.
+
+```bash
+valet user add alice --github alice-smith               # fetches ALL SSH keys
+valet env grant alice -e dev
+git add . && git commit -m "grant alice" && git push
+# Alice: git pull && valet drive -- npm start
+```
+
+Multiple SSH keys per person are supported (work laptop + personal laptop). Keys sync with `valet user refresh`.
+
+For larger teams, use a standalone git-backed store shared across repos:
+
+```bash
+valet store create github:acme/api-secrets
+valet user add bob --github bob-smith -s api-secrets    # invites to GitHub repo
+valet push -s api-secrets
+# Bob: valet join github:acme/api-secrets && valet link api-secrets
+```
+
+See [detailed team workflows](#team-details) below.
+
 ## Adopting Existing Projects
 
 ### Full adoption (you control the repo)
@@ -298,7 +361,8 @@ valet push
 
 Copies your personal keys into the team store so teammates get them too.
 
-## Sharing with a Team
+<a id="team-details"></a>
+## Team Workflows (Detailed)
 
 ### Embedded store (simplest)
 
@@ -531,37 +595,6 @@ valet import .env --scope dev/runtime                  # import into specific sc
 ```
 
 Valet handles comments (`#`), quoted values (`"val"`), and `export` prefixes.
-
-## Web Dashboard
-
-```bash
-valet ui                                               # opens dashboard at localhost
-valet ui --port 8484                                   # specific port
-```
-
-Store-centric navigation: click into any store to see Secrets (All/per-env), Team, Environments, Rotation, Invites, Activity. Key features:
-
-- **All view** — expandable rows showing each secret across all environments. Green = set, red = missing, amber = needs rotation, lock = set but no access. Inline Set/Edit/Delete.
-- **Provider-driven add secret** — pick a provider (OpenAI, Stripe, ...) to see its env vars with prefix hints and setup links. Or manual mode for custom keys.
-- **Team** — add members via GitHub username (SSH keys fetched automatically), refresh keys, grant/revoke per environment. Multi-key support for multiple machines.
-- **Environments** — create, clone (with user access), delete. Per-env user + secrets view with inline grant/revoke.
-- **Push button** — amber indicator when git-backed stores have unpushed changes.
-- **Adopt banner** — detects `.env.example` in unconfigured projects and offers one-click adoption.
-
-## Multi-Key Users
-
-Users can have multiple SSH keys (e.g. work laptop + personal laptop). When added via GitHub, all SSH keys are fetched and stored as recipients.
-
-```bash
-valet user add alice --github alice                    # fetches ALL SSH keys
-valet user refresh alice                               # syncs: adds new keys, warns about removed
-valet user add-key bob --key "ssh-ed25519 ..."         # add a key manually
-valet user revoke-key alice ssh-rsa:AAAA...            # revoke a specific key
-```
-
-Each key has metadata: source (`github`, `age-identity`, `manual`), label (from GitHub API: creation date, last used).
-
-Refresh adds new keys automatically (low risk — just lets them decrypt from another machine). Removed keys are flagged but not auto-revoked (security decision requires explicit action).
 
 ## Declaring Requirements (without .env.example)
 
@@ -833,7 +866,8 @@ name = "my-keys"
 - Version history — up to 10 previous versions per secret
 - `VALET_KEY` env var for bots — no key files in CI
 
-## AI Tool Integration (MCP)
+<a id="mcp-details"></a>
+## AI Tool Integration (MCP Details)
 
 Valet includes a [Model Context Protocol](https://modelcontextprotocol.io/) server that lets AI coding tools (Claude Code, Cursor, etc.) manage secrets directly.
 
