@@ -1,6 +1,8 @@
 # Valet
 
-Encrypted secrets management for developers and teams. Store locally, share through git, inject at runtime.
+Encrypted secrets management for developers and teams.
+
+**Projects** declare what they need (from `.env.example` or `.valet.toml`). **Stores** hold encrypted values. `valet drive` injects secrets at runtime — no plaintext `.env` files.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/peterday/valet/main/install.sh | sh
@@ -31,7 +33,83 @@ valet adopt --personal my-keys                         # zero repo changes — g
 valet drive -- npm start                               # your secrets, their codebase
 ```
 
-Secrets are encrypted, injected at runtime by `valet drive`, and never stored in plaintext.
+## How It Works
+
+Two primitives:
+
+**Projects** have **requirements** — what secrets they need. Auto-detected from `.env.example` (if present), with optional overrides in `.valet.toml` (shared) and `.valet.local.toml` (personal, gitignored).
+
+**Stores** have **secrets** — encrypted values organized by environment. Three types: **embedded** (`.valet/` in the repo), **personal** (`~/.valet/stores/`), or **team** (git-backed, shared). `valet drive` merges all linked stores and injects secrets at runtime.
+
+**Environments** (`dev`, `staging`, `prod`) hold different values for the same keys. **Scopes** are fine-grained access boundaries within an environment — most projects just use the default and never think about them.
+
+## Adopting Existing Projects
+
+### Full adoption (you control the repo)
+
+```bash
+cd ~/code/my-project                                   # has .env.example
+valet adopt                                            # preview: detected secrets + provider matches
+```
+
+Valet reads `.env.example`, classifies each variable as secret or config, matches against the provider registry, and shows a preview. Accept to create an embedded store and `.valet.toml`. Existing `.env` values can be imported into the encrypted store.
+
+### Personal adoption (team uses .env files)
+
+```bash
+cd ~/code/team-project
+valet adopt --personal my-keys                         # links your personal store
+valet drive -- npm start                               # secrets injected from my-keys
+```
+
+Creates only `.valet.local.toml` (auto-added to `.gitignore`). No `.valet.toml`, no `.valet/` directory. The team sees zero changes. You get encrypted storage, multi-machine sync, and `valet drive`.
+
+When the team is ready to adopt:
+```bash
+valet init                                             # creates shared config
+valet adopt                                            # reads .env.example into requirements
+```
+
+Everyone's personal stores already have the values — they just keep working.
+
+### Requirements from .env.example
+
+When a project has a `.env.example`, valet reads it as the source of truth for requirements. No need to manually declare each secret with `valet require`.
+
+Three layers, merged at runtime (highest priority wins):
+
+```
+.env.example                →  auto-detected baseline (universal)
+.valet.toml [requires]      →  shared overrides (committed, team-wide)
+.valet.local.toml [requires] →  personal overrides (gitignored)
+```
+
+The shared/personal overrides only need entries when you disagree with the auto-detection:
+
+```toml
+# .valet.toml — only overrides, not a full copy
+[requires.PORT]
+# (presence alone = "track this even though heuristic said no")
+
+[requires.SENTRY_DSN]
+optional = true
+
+[requires.NODE_ENV]
+track = false   # explicitly exclude
+```
+
+Adding a new env var to `.env.example` is automatically picked up — no need to also update `.valet.toml`.
+
+### Migrating from duplicate requirements
+
+If `.valet.toml` has requirements that duplicate `.env.example` (e.g. from an earlier `valet adopt`), migrate to the override model:
+
+```bash
+valet migrate                                          # shows what's redundant vs overrides
+valet migrate -y                                       # apply without confirmation
+```
+
+After migration, `.valet.toml` only contains meaningful overrides.
 
 ## Stores
 
@@ -454,74 +532,6 @@ valet import .env --scope dev/runtime                  # import into specific sc
 
 Valet handles comments (`#`), quoted values (`"val"`), and `export` prefixes.
 
-## Adopting Existing Projects
-
-### Full adoption (you control the repo)
-
-```bash
-cd ~/code/my-project                                   # has .env.example
-valet adopt                                            # preview: detected secrets + provider matches
-```
-
-Valet reads `.env.example`, classifies each variable as secret or config, matches against the provider registry, and shows a preview. Accept to create an embedded store and `.valet.toml`. Existing `.env` values can be imported into the encrypted store.
-
-### Personal adoption (team uses .env files)
-
-```bash
-cd ~/code/team-project
-valet adopt --personal my-keys                         # links your personal store
-valet drive -- npm start                               # secrets injected from my-keys
-```
-
-Creates only `.valet.local.toml` (auto-added to `.gitignore`). No `.valet.toml`, no `.valet/` directory. The team sees zero changes. You get encrypted storage, multi-machine sync, and `valet drive`.
-
-When the team is ready to adopt:
-```bash
-valet init                                             # creates shared config
-valet adopt                                            # reads .env.example into requirements
-```
-
-Everyone's personal stores already have the values — they just keep working.
-
-### Requirements from .env.example
-
-When a project has a `.env.example`, valet reads it as the source of truth for requirements. No need to manually declare each secret with `valet require`.
-
-Three layers, merged at runtime (highest priority wins):
-
-```
-.env.example                →  auto-detected baseline (universal)
-.valet.toml [requires]      →  shared overrides (committed, team-wide)
-.valet.local.toml [requires] →  personal overrides (gitignored)
-```
-
-The shared/personal overrides only need entries when you disagree with the auto-detection:
-
-```toml
-# .valet.toml — only overrides, not a full copy
-[requires.PORT]
-# (presence alone = "track this even though heuristic said no")
-
-[requires.SENTRY_DSN]
-optional = true
-
-[requires.NODE_ENV]
-track = false   # explicitly exclude
-```
-
-Adding a new env var to `.env.example` is automatically picked up by valet — no need to also update `.valet.toml`.
-
-### Migrating from duplicate requirements
-
-If `.valet.toml` has requirements that duplicate `.env.example` (e.g. from an earlier `valet adopt`), migrate to the override model:
-
-```bash
-valet migrate                                          # shows what's redundant vs overrides
-valet migrate -y                                       # apply without confirmation
-```
-
-After migration, `.valet.toml` only contains meaningful overrides.
-
 ## Web Dashboard
 
 ```bash
@@ -553,45 +563,19 @@ Each key has metadata: source (`github`, `age-identity`, `manual`), label (from 
 
 Refresh adds new keys automatically (low risk — just lets them decrypt from another machine). Removed keys are flagged but not auto-revoked (security decision requires explicit action).
 
-## Declaring Requirements
+## Declaring Requirements (without .env.example)
+
+If your project doesn't have a `.env.example`, declare requirements explicitly with `valet require`. These go into `.valet.toml` and work the same as auto-detected requirements.
 
 ```bash
 valet require OPENAI_API_KEY --provider openai
 valet require DATABASE_URL --description "Postgres connection string"
 valet require SENTRY_DSN --optional
+valet require PORT --personal                          # personal override (gitignored)
+valet require --provider stripe                        # all Stripe keys at once
 ```
 
-For providers with multiple keys, declare them all at once:
-
-```bash
-valet require --provider stripe                        # STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET
-valet require --provider supabase                      # SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
-valet require --provider supabase --optional           # all optional
-```
-
-```toml
-default_env = 'dev'
-
-[requires.OPENAI_API_KEY]
-provider = 'openai'
-
-[requires.DATABASE_URL]
-description = 'Postgres connection string'
-
-[requires.SENTRY_DSN]
-optional = true
-
-[requires.STRIPE_SECRET_KEY]
-provider = 'stripe'
-
-[requires.STRIPE_PUBLISHABLE_KEY]
-provider = 'stripe'
-
-[requires.STRIPE_WEBHOOK_SECRET]
-provider = 'stripe'
-```
-
-`valet status` shows what's resolved. `valet setup` fills in the gaps interactively.
+`valet status` shows what's configured. `valet setup` fills in the gaps interactively.
 
 ## Store Linking
 
@@ -780,20 +764,6 @@ valet store list                                       # list stores
 valet store delete my-secrets                          # delete a local store
 valet store delete my-secrets --force                  # skip confirmation
 ```
-
-## Key Concepts
-
-**Store** — Where secrets live. **Embedded** (`.valet/` in your project), **personal** (`~/.valet/stores/`), or **team** (git-backed). Stores layer — `valet drive` merges them all.
-
-**Project** — One app or service within a store. Embedded stores have a single implicit project. Standalone stores can hold multiple — reference via URI: `github:acme/secrets/api`.
-
-**Environment** — `dev`, `staging`, `prod`. Each has its own secrets. Switch with `-e`.
-
-**Scope** — Encryption and access boundary. Secrets in a scope share the same recipients. Most projects use the `default` scope per environment and never think about scopes.
-
-**Recipients** — Users whose keys can decrypt a scope's vault. `valet env grant` adds to all scopes. `valet env revoke` re-encrypts without them.
-
-**Hierarchy:** Store → Project → Environment → Scope → Secrets.
 
 ## Scopes (Advanced)
 
