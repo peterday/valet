@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -80,13 +82,69 @@ func (s *Server) handleStores(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleStoreCreate(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Error(w, "store name is required", http.StatusBadRequest)
+		return
+	}
+
+	uri := store.ParseStoreURI(name)
+
+	var storeType domain.StoreType
+	if uri.IsRemote {
+		storeType = domain.StoreTypeGit
+	} else {
+		storeType = domain.StoreTypeLocal
+	}
+
+	storePath := filepath.Join(s.cfg.StoresDir, uri.StoreName)
+	if _, err := os.Stat(storePath); err == nil {
+		http.Error(w, fmt.Sprintf("store %q already exists", uri.StoreName), http.StatusConflict)
+		return
+	}
+
+	st, err := store.Create(storePath, uri.StoreName, storeType, s.id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("creating store: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	st.AddUser("me", "", s.id.PublicKey)
+	store.EnrichStoreCreator(st)
+
+	projectName := uri.EffectiveProject()
+	st.CreateProject(projectName)
+	st.CreateEnvironment(projectName, "dev")
+	st.CreateScope(projectName, "dev/default")
+	st.DefaultProject = projectName
+
+	if uri.IsRemote {
+		st.Meta.Remote = uri.Remote
+		if err := st.InitRepo(); err != nil {
+			http.Error(w, fmt.Sprintf("git init: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if err := st.SetRemote(uri.Remote); err != nil {
+			http.Error(w, fmt.Sprintf("setting remote: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// Create remote repo (if it doesn't exist) and push.
+		st.CreateRemoteAndPush(uri.Remote)
+	}
+
+	http.Redirect(w, r, "/stores/"+urlEncodeStoreName(st.Meta.Name), http.StatusSeeOther)
+}
+
 type secretRow struct {
 	Key       string
 	Provider  string
 	Scope     string
+	ScopeName string // display name: just the part after env/ (e.g. "payments")
 	UpdatedAt string
 	UpdatedBy string
 	Masked    string
+	Global    bool // true if inherited from wildcard (*), not set directly in this env
 }
 
 // secretGroup is a key shown across all environments (for the "all" view).
@@ -94,9 +152,10 @@ type secretGroup struct {
 	Key           string
 	Provider      string
 	EnvRows       []secretEnvRow
-	PresentIn     []string // env names where this key exists and user has access
+	PresentIn     []string // env names where this key is directly set and user has access
 	LockedIn      []string // env names where key exists but user can't decrypt
 	MissingIn     []string // env names where this key is absent
+	HasWildcard   bool     // true if key is set in * (all environments)
 	RotationIn    []string // env names where this key needs rotation
 	LatestTime    string   // most recent update across envs
 	EnvCount      int      // number of envs that have this key
@@ -112,6 +171,7 @@ type secretEnvRow struct {
 	UpdatedBy    string
 	Missing      bool   // key doesn't exist in this env at all
 	Locked       bool   // key exists but user can't decrypt (not a recipient)
+	Inherited    bool   // key is inherited from wildcard (*), not set directly
 	NeedsRotation bool  // flagged for rotation
 	rawTime      time.Time
 }
@@ -154,16 +214,21 @@ func (s *Server) handleStoreDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Single-env view.
+	// Single-env view: include secrets from this env + wildcard (*) that aren't overridden.
 	var rows []secretRow
+	envKeys := make(map[string]bool)
+
+	// First, collect secrets directly in this env.
 	scopes, _ := st.ListScopes(project, env)
+	hasMultipleScopes := len(scopes) > 1
 	for _, scope := range scopes {
 		manifest := readManifestFile(st.Root, project, scope.Path)
 
 		for _, key := range scope.Secrets {
 			row := secretRow{
-				Key:   key,
-				Scope: scope.Path,
+				Key:       key,
+				Scope:     scope.Path,
+				ScopeName: scopeDisplayName(scope.Path),
 			}
 
 			if manifest != nil {
@@ -179,20 +244,65 @@ func (s *Server) handleStoreDetail(w http.ResponseWriter, r *http.Request) {
 			}
 
 			rows = append(rows, row)
+			envKeys[key] = true
+		}
+	}
+
+	// Then, add wildcard (*) secrets that aren't overridden in this env.
+	if env != "*" {
+		wildcardScopes, _ := st.ListScopes(project, "*")
+		for _, scope := range wildcardScopes {
+			manifest := readManifestFile(st.Root, project, scope.Path)
+
+			for _, key := range scope.Secrets {
+				if envKeys[key] {
+					continue // overridden in this env
+				}
+
+				row := secretRow{
+					Key:    key,
+					Scope:  scope.Path,
+					Global: true,
+				}
+
+				if manifest != nil {
+					if p, ok := manifest.Providers[key]; ok {
+						row.Provider = p
+					}
+				}
+
+				if secret, err := st.GetSecret(project, scope.Path, key); err == nil {
+					row.Masked = maskSecret(secret.Value)
+					row.UpdatedAt = timeAgo(secret.UpdatedAt)
+					row.UpdatedBy = secret.UpdatedBy
+				}
+
+				rows = append(rows, row)
+			}
 		}
 	}
 
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 
+	// Build scope names for the add form when multiple scopes exist.
+	var scopeNames []string
+	if hasMultipleScopes {
+		for _, sc := range scopes {
+			scopeNames = append(scopeNames, scopeDisplayName(sc.Path))
+		}
+	}
+
 	s.render(w, "store_detail.html", map[string]any{
-		"Page":         "stores",
-		"Tab":          "secrets",
-		"StoreName":    name,
-		"StoreType":    st.Meta.Type,
-		"StoreRemote":  storeRemote(st),
-		"Environments": envs,
-		"ActiveEnv":    env,
-		"Secrets":      rows,
+		"Page":              "stores",
+		"Tab":               "secrets",
+		"StoreName":         name,
+		"StoreType":         st.Meta.Type,
+		"StoreRemote":       storeRemote(st),
+		"Environments":      envs,
+		"ActiveEnv":         env,
+		"Secrets":           rows,
+		"HasMultipleScopes": hasMultipleScopes,
+		"ScopeNames":        scopeNames,
 	})
 }
 
@@ -274,6 +384,10 @@ func (s *Server) buildAllEnvView(st *store.Store, project string, envs []string)
 			TotalEnvs: len(envs),
 		}
 		var latestTime time.Time
+		// Check if the key exists in the wildcard (*) environment.
+		_, hasWildcard := ki.envData["*"]
+		g.HasWildcard = hasWildcard
+
 		for _, env := range envs {
 			if row, ok := ki.envData[env]; ok {
 				g.EnvRows = append(g.EnvRows, row)
@@ -290,6 +404,17 @@ func (s *Server) buildAllEnvView(st *store.Store, project string, envs []string)
 					latestTime = row.rawTime
 					g.LatestTime = row.UpdatedAt
 				}
+			} else if hasWildcard && env != "*" {
+				// Wildcard covers this env — mark as inherited.
+				g.EnvRows = append(g.EnvRows, secretEnvRow{
+					Env:       env,
+					Inherited: true,
+				})
+				g.PresentIn = append(g.PresentIn, env)
+				g.EnvCount++
+			} else if env == "*" {
+				// Key isn't in wildcard — that's fine, skip it.
+				// It's only a problem if it's missing from named envs.
 			} else {
 				g.EnvRows = append(g.EnvRows, secretEnvRow{
 					Env:     env,

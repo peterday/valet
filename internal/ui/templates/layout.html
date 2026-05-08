@@ -1,3 +1,4 @@
+{{define "modal"}}{{end}}
 {{define "layout"}}<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
@@ -52,6 +53,9 @@
   <main class="flex-1 p-8 overflow-auto">
     {{template "content" .}}
   </main>
+
+  <!-- Modal portal — rendered outside main to avoid overflow/stacking issues -->
+  {{template "modal" .}}
 
   <!-- Toast container -->
   <div id="toast-container" class="fixed bottom-4 right-4 space-y-2 z-50"></div>

@@ -5,10 +5,43 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 
 	"github.com/peterday/valet/internal/domain"
 )
+
+// DetectGitHubUser returns the authenticated GitHub username via the gh CLI,
+// or empty string if gh is not installed or not logged in.
+func DetectGitHubUser() string {
+	out, err := exec.Command("gh", "api", "user", "-q", ".login").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// EnrichStoreCreator detects the current user's GitHub username and adds their
+// SSH keys to the "me" user. This should be called after store creation.
+func EnrichStoreCreator(s *Store) {
+	gh := DetectGitHubUser()
+	if gh == "" {
+		return
+	}
+
+	keys, err := FetchGitHubKeys(gh)
+	if err != nil || len(keys) == 0 {
+		return
+	}
+
+	// Update user's GitHub handle.
+	s.UpdateUser("me", map[string]string{"github": gh})
+
+	// Add SSH keys.
+	for _, k := range keys {
+		s.AddUserKey("me", k.Key, k.Label, k.Source)
+	}
+}
 
 // githubKey is the JSON response from GitHub's /users/:user/keys API.
 type githubKey struct {

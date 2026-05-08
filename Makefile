@@ -1,4 +1,9 @@
-.PHONY: build run test lint clean
+.PHONY: build run test lint clean install
+
+install:
+	brew install go node 2>/dev/null || true
+	go mod download
+	cd internal/ui/static && npm install tailwindcss
 
 build:
 	go build -o bin/valet ./cmd/valet

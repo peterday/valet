@@ -13,6 +13,9 @@
 # Go
 vendor/
 
+# Node
+node_modules/
+
 # Local testing artifacts
 /.valet/
 /.valet.toml

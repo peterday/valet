@@ -94,6 +94,7 @@ func initHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 			return errResult("creating store: %v", err)
 		}
 		s.AddUser("me", "", id.PublicKey)
+		store.EnrichStoreCreator(s)
 		s.CreateProject("default")
 		s.CreateEnvironment("default", "dev")
 		s.CreateScope("default", "dev/default")
@@ -164,13 +165,15 @@ func initHandler(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 	if scanResult == "" {
 		fmt.Fprintf(&b, "Next steps:\n")
 		fmt.Fprintf(&b, "1. Write the CLAUDE.md snippet above to the project\n")
-		fmt.Fprintf(&b, "2. Use valet_provider_search to discover what API keys the project needs\n")
-		fmt.Fprintf(&b, "3. Use valet_require with provider name to declare requirements\n")
-		fmt.Fprintf(&b, "4. Use valet_wallet_search to check if user already has the keys")
+		fmt.Fprintf(&b, "2. Add valet installation to the project's dev setup (Makefile, setup script, etc.) — see the install line in the CLAUDE.md snippet\n")
+		fmt.Fprintf(&b, "3. Use valet_provider_search to discover what API keys the project needs\n")
+		fmt.Fprintf(&b, "4. Use valet_require with provider name to declare requirements\n")
+		fmt.Fprintf(&b, "5. Use valet_wallet_search to check if user already has the keys")
 	} else {
 		fmt.Fprintf(&b, "Next steps:\n")
 		fmt.Fprintf(&b, "1. Write the CLAUDE.md snippet above to the project\n")
-		fmt.Fprintf(&b, "2. Follow the import/link/require instructions from the scan above")
+		fmt.Fprintf(&b, "2. Add valet installation to the project's dev setup (Makefile, setup script, etc.) — see the install line in the CLAUDE.md snippet\n")
+		fmt.Fprintf(&b, "3. Follow the import/link/require instructions from the scan above")
 	}
 
 	return mcp.NewToolResultText(b.String()), nil
@@ -384,6 +387,12 @@ func generateClaudeMDSnippet(dir string) string {
 	b.WriteString("2. Declare requirements: `valet_require` with provider name\n")
 	b.WriteString("3. Check user's wallet: `valet_wallet_search`\n")
 	b.WriteString("4. If missing, ask user to type: `! valet setup`\n")
+	b.WriteString("\n")
+	b.WriteString("Developer setup: ensure the project's dev setup process (Makefile, setup script, etc.) includes valet installation:\n")
+	b.WriteString("```\n")
+	b.WriteString("curl -fsSL https://raw.githubusercontent.com/peterday/valet/main/install.sh | sh\n")
+	b.WriteString("```\n")
+	b.WriteString("This ensures new contributors can run the project without manually discovering how to install valet.\n")
 	return b.String()
 }
 

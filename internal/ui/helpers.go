@@ -95,6 +95,15 @@ func envFromScope(scopePath string) string {
 	return parts[0]
 }
 
+// scopeDisplayName extracts the scope name from a path like "dev/payments" → "payments".
+func scopeDisplayName(scopePath string) string {
+	parts := strings.SplitN(scopePath, "/", 2)
+	if len(parts) < 2 {
+		return scopePath
+	}
+	return parts[1]
+}
+
 // writeManifestFile writes a manifest.json directly to disk.
 func writeManifestFile(storeRoot, project, scopePath string, m *domain.Manifest) error {
 	m.UpdatedAt = time.Now().UTC()

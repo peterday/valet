@@ -11,6 +11,14 @@
   }
 }
 
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+dialog {
+  margin-top: 6rem;
+}
+
 @keyframes slideUp {
   from { transform: translateY(1rem); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

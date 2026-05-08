@@ -2,48 +2,73 @@
 <div class="max-w-5xl">
   {{template "store_tabs" .}}
 
-  <!-- Environment pills + management -->
-  <div class="flex items-center gap-4 mb-6">
-    <div class="flex gap-2 flex-wrap">
-      {{range .Environments}}
-      <a href="/stores/{{$.StoreNameEncoded}}/environments?env={{.}}"
-         class="px-3 py-1.5 rounded-md text-sm transition-colors
-           {{if eq . $.ActiveEnv}}bg-indigo-500 text-white{{else}}bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white{{end}}">
-        {{.}}
-      </a>
-      {{end}}
-    </div>
+  <!-- Access Matrix -->
+  <h2 class="text-lg font-medium text-white mb-4">Access</h2>
 
-    <!-- Create / Clone buttons -->
-    <div class="flex gap-2 ml-auto">
-      <button onclick="document.getElementById('create-env-form').classList.toggle('hidden')"
-              class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
-        + New
-      </button>
-      {{if .ActiveEnv}}
-      <button onclick="document.getElementById('clone-env-form').classList.toggle('hidden')"
-              class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
-        Clone {{.ActiveEnv}}
-      </button>
-      <form method="POST" action="/stores/{{.StoreNameEncoded}}/environments/delete" class="inline"
-            onsubmit="return confirm('Delete environment {{.ActiveEnv}}? This will remove all secrets and access in this environment.')">
-        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-        <input type="hidden" name="env_name" value="{{.ActiveEnv}}">
-        <button type="submit" class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-rose-400 hover:bg-rose-600 hover:text-white transition-colors border border-slate-700">
-          Delete {{.ActiveEnv}}
-        </button>
-      </form>
-      {{end}}
-    </div>
+  {{if and .Matrix .Environments}}
+  <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden mb-8">
+    <table class="w-full">
+      <thead>
+        <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
+          <th class="text-left p-4">User</th>
+          {{range .Environments}}
+          <th class="text-center p-4">{{.}}</th>
+          {{end}}
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Matrix}}
+        <tr class="border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors">
+          <td class="p-4 text-sm text-white">{{.UserName}}</td>
+          {{$user := .UserName}}
+          {{$access := .Access}}
+          {{range $.Environments}}
+          <td class="text-center p-4">
+            {{if index $access .}}
+            <form method="POST" action="/stores/{{$.StoreNameEncoded}}/revoke" class="inline"
+                  onsubmit="return confirm('Revoke {{$user}} from {{.}}?')">
+              <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+              <input type="hidden" name="user" value="{{$user}}">
+              <input type="hidden" name="env" value="{{.}}">
+              <button type="submit" class="text-emerald-400 hover:text-rose-400 transition-colors" title="Click to revoke">&#10003;</button>
+            </form>
+            {{else}}
+            <form method="POST" action="/stores/{{$.StoreNameEncoded}}/grant" class="inline">
+              <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+              <input type="hidden" name="user" value="{{$user}}">
+              <input type="hidden" name="env" value="{{.}}">
+              <button type="submit" class="text-slate-600 hover:text-emerald-400 transition-colors" title="Click to grant">&#10007;</button>
+            </form>
+            {{end}}
+          </td>
+          {{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400 mb-8">
+    No environments yet.
+  </div>
+  {{end}}
+
+  <!-- Environment Cards -->
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-medium text-white">Environments</h2>
+    <button onclick="document.getElementById('create-env-form').classList.toggle('hidden')"
+            class="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors border border-slate-700">
+      + New environment
+    </button>
   </div>
 
-  <!-- Create env form (hidden by default) -->
+  <!-- Create env form -->
   <div id="create-env-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
     <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreNameEncoded}}/environments/create">
       <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
       <div class="flex-1">
         <label class="block text-xs text-slate-400 mb-1">Environment name</label>
-        <input type="text" name="env_name" placeholder="staging"
+        <input type="text" name="env_name" placeholder="staging" autocomplete="off"
                class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
       </div>
       <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors">
@@ -52,126 +77,136 @@
     </form>
   </div>
 
-  <!-- Clone env form (hidden by default) -->
-  <div id="clone-env-form" class="hidden mb-6 bg-slate-800 rounded-lg border border-slate-700 p-4">
-    <form class="flex items-end gap-3" method="POST" action="/stores/{{.StoreNameEncoded}}/environments/clone">
-      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-      <input type="hidden" name="source_env" value="{{.ActiveEnv}}">
-      <div class="flex-1">
-        <label class="block text-xs text-slate-400 mb-1">New environment name (cloning from <span class="text-white">{{.ActiveEnv}}</span>)</label>
-        <input type="text" name="target_env" placeholder="staging"
-               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+  <div class="space-y-4">
+    {{range .EnvCards}}
+    <div class="bg-slate-800 rounded-lg border border-slate-700">
+      <!-- Env header -->
+      <div class="flex items-center justify-between p-4 border-b border-slate-700/50">
+        <div class="flex items-center gap-3">
+          <span class="font-mono text-sm text-white font-medium">{{.Name}}</span>
+          <span class="text-xs text-slate-500">{{.SecretCount}} secret{{if ne .SecretCount 1}}s{{end}}</span>
+          <a href="/stores/{{$.StoreNameEncoded}}?env={{.Name}}" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+            View secrets &rarr;
+          </a>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="cloneEnv('{{.Name}}')"
+                  class="text-xs text-slate-500 hover:text-white transition-colors" title="Clone">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          </button>
+          <form method="POST" action="/stores/{{$.StoreNameEncoded}}/environments/delete" class="inline"
+                onsubmit="return confirm('Delete {{.Name}}? All secrets and access will be removed.')">
+            <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+            <input type="hidden" name="env_name" value="{{.Name}}">
+            <button type="submit" class="text-xs text-slate-500 hover:text-rose-400 transition-colors" title="Delete">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            </button>
+          </form>
+        </div>
       </div>
-      <div class="flex items-center gap-2 self-end pb-2">
-        <input type="checkbox" name="copy_users" id="clone-copy-users" checked
-               class="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
-        <label for="clone-copy-users" class="text-xs text-slate-400">Copy user access</label>
-      </div>
-      <button type="submit" class="px-4 py-2 bg-indigo-500 text-white rounded-md text-sm hover:bg-indigo-600 transition-colors self-end">
-        Clone
-      </button>
-    </form>
-  </div>
 
-  {{if .ActiveEnv}}
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- Users with access -->
-    <div>
-      <h2 class="text-lg font-medium text-white mb-4">
-        Users
-        <span class="text-sm text-slate-400 font-normal ml-1">{{.UserCount}} total</span>
-      </h2>
-      <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
-              <th class="text-left p-3">User</th>
-              <th class="text-center p-3">Access</th>
-              <th class="text-right p-3">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Users}}
-            <tr class="border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors">
-              <td class="p-3">
-                <span class="text-sm text-white">{{.UserName}}</span>
-              </td>
-              <td class="text-center p-3">
-                {{if .HasAccess}}
-                <span class="text-emerald-400">&#10003;</span>
-                {{else}}
-                <span class="text-slate-600">&#10007;</span>
-                {{end}}
-              </td>
-              <td class="text-right p-3">
-                {{if .HasAccess}}
-                <form method="POST" action="/stores/{{$.StoreNameEncoded}}/revoke" class="inline"
-                      onsubmit="return confirm('Revoke {{.UserName}} from {{$.ActiveEnv}}? Secrets will be flagged for rotation.')">
-                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-                  <input type="hidden" name="user" value="{{.UserName}}">
-                  <input type="hidden" name="env" value="{{$.ActiveEnv}}">
-                  <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-rose-600 hover:text-white transition-colors">
-                    Revoke
-                  </button>
-                </form>
-                {{else}}
-                <form method="POST" action="/stores/{{$.StoreNameEncoded}}/grant" class="inline">
-                  <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-                  <input type="hidden" name="user" value="{{.UserName}}">
-                  <input type="hidden" name="env" value="{{$.ActiveEnv}}">
-                  <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-emerald-600 hover:text-white transition-colors">
-                    Grant
-                  </button>
-                </form>
-                {{end}}
-              </td>
-            </tr>
+      <!-- Scopes -->
+      <div class="p-4">
+        {{range $scope := .Scopes}}
+        <div class="{{if ne $scope.Name "default"}}mt-4 pt-4 border-t border-slate-700/30{{end}}">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="font-mono text-xs text-slate-300">{{$scope.Name}}</span>
+            <span class="text-xs text-slate-600">{{$scope.SecretCount}} secret{{if ne $scope.SecretCount 1}}s{{end}}</span>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            {{range $scope.Recipients}}
+            <span class="inline-flex items-center gap-1 text-xs bg-slate-700/50 text-slate-300 pl-2 pr-1 py-0.5 rounded">
+              {{.}}
+              <form method="POST" action="/stores/{{$.StoreNameEncoded}}/scopes/revoke" class="inline"
+                    onsubmit="return confirm('Remove {{.}} from this scope?')">
+                <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+                <input type="hidden" name="scope" value="{{$scope.Path}}">
+                <input type="hidden" name="user" value="{{.}}">
+                <button type="submit" class="text-slate-500 hover:text-rose-400 transition-colors ml-0.5">&times;</button>
+              </form>
+            </span>
             {{end}}
-          </tbody>
-        </table>
+            <!-- Add recipient -->
+            <div class="inline-flex">
+              <select onchange="if(this.value) grantScope(this, '{{$.StoreNameEncoded}}', '{{$scope.Path}}', '{{$.CSRFToken}}')"
+                      class="bg-slate-900 border border-slate-700 rounded text-xs text-slate-500 pl-2 pr-6 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 appearance-none cursor-pointer">
+                <option value="">+ add user</option>
+                {{range $.UserNames}}
+                <option value="{{.}}">{{.}}</option>
+                {{end}}
+              </select>
+            </div>
+          </div>
+        </div>
+        {{end}}
+
+        <!-- Add scope -->
+        <div class="mt-4 pt-3 border-t border-slate-700/30">
+          <form class="flex gap-2" method="POST" action="/stores/{{$.StoreNameEncoded}}/scopes/create">
+            <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+            <input type="hidden" name="env" value="{{.Name}}">
+            <input type="text" name="scope_name" placeholder="add scope..." autocomplete="off"
+                   class="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+            <button type="submit" class="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-indigo-600 hover:text-white transition-colors">
+              Add scope
+            </button>
+          </form>
+        </div>
       </div>
     </div>
-
-    <!-- Secrets in this env -->
-    <div>
-      <h2 class="text-lg font-medium text-white mb-4">
-        Secrets
-        <span class="text-sm text-slate-400 font-normal ml-1">{{.SecretCount}} total</span>
-      </h2>
-      {{if not .Secrets}}
-      <div class="bg-slate-800 rounded-lg border border-slate-700 p-6 text-center text-slate-400 text-sm">
-        No secrets in this environment.
-      </div>
-      {{else}}
-      <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
-              <th class="text-left p-3">Secret</th>
-              <th class="text-left p-3">Provider</th>
-              <th class="text-left p-3">Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Secrets}}
-            <tr class="border-b border-slate-700/50">
-              <td class="p-3 font-mono text-sm text-white">{{.Key}}</td>
-              <td class="p-3">
-                {{if .Provider}}
-                <span class="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400">{{.Provider}}</span>
-                {{else}}
-                <span class="text-slate-500">&mdash;</span>
-                {{end}}
-              </td>
-              <td class="p-3 text-xs text-slate-400">{{.UpdatedAt}}</td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-      {{end}}
-    </div>
+    {{end}}
   </div>
-  {{end}}
 </div>
+
+<!-- Clone modal -->
+<dialog id="clone-modal" class="bg-slate-800 border border-slate-700 rounded-lg p-6 w-full max-w-md shadow-xl backdrop:bg-black/50 mt-24">
+  <h2 class="text-lg font-semibold text-white mb-4">Clone environment</h2>
+  <form method="POST" action="/stores/{{.StoreNameEncoded}}/environments/clone">
+    <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    <input type="hidden" name="source_env" id="clone-source">
+    <div class="mb-3">
+      <label class="block text-xs text-slate-400 mb-1">Cloning from <span id="clone-source-label" class="text-white font-mono"></span></label>
+      <input type="text" name="target_env" placeholder="new environment name" autocomplete="off"
+             class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    </div>
+    <div class="flex items-center gap-2 mb-4">
+      <input type="checkbox" name="copy_users" id="clone-copy-users" checked
+             class="rounded bg-slate-900 border-slate-700 text-indigo-500 focus:ring-indigo-500">
+      <label for="clone-copy-users" class="text-sm text-slate-300">Copy user access</label>
+    </div>
+    <div class="flex justify-end gap-3">
+      <button type="button" onclick="document.getElementById('clone-modal').close()"
+              class="px-3 py-1.5 text-sm text-slate-300 hover:text-white transition-colors">Cancel</button>
+      <button type="submit"
+              class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-md transition-colors">Clone</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+function grantScope(selectEl, store, scopePath, csrf) {
+  var user = selectEl.value;
+  if (!user) return;
+  var form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/stores/' + store + '/scopes/grant';
+  form.innerHTML = '<input type="hidden" name="_csrf" value="' + csrf + '">' +
+    '<input type="hidden" name="scope" value="' + scopePath + '">' +
+    '<input type="hidden" name="user" value="' + user + '">';
+  document.body.appendChild(form);
+  form.submit();
+}
+
+function cloneEnv(name) {
+  document.getElementById('clone-source').value = name;
+  document.getElementById('clone-source-label').textContent = name;
+  document.getElementById('clone-modal').showModal();
+}
+
+// Close clone modal on backdrop click
+var cloneModal = document.getElementById('clone-modal');
+cloneModal.addEventListener('click', function(e) {
+  if (e.target === cloneModal) cloneModal.close();
+});
+</script>
 {{end}}

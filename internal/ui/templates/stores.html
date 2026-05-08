@@ -1,6 +1,155 @@
+{{define "modal"}}
+<dialog id="create-store-modal" class="bg-slate-800 border border-slate-700 rounded-lg p-6 w-full max-w-2xl shadow-xl backdrop:bg-black/50 mt-24">
+  <h2 class="text-lg font-semibold text-white mb-4">Create store</h2>
+
+  <!-- Type selector -->
+  <div class="flex gap-2 mb-5">
+    <button type="button" id="tab-local"
+            onclick="setStoreType('local')"
+            class="flex-1 px-3 py-2 text-sm rounded-md border transition-colors">
+      <div class="font-medium">Local</div>
+      <div class="text-xs mt-0.5 opacity-70">On this machine only</div>
+    </button>
+    <button type="button" id="tab-github"
+            onclick="setStoreType('github')"
+            class="flex-1 px-3 py-2 text-sm rounded-md border transition-colors">
+      <div class="font-medium">GitHub</div>
+      <div class="text-xs mt-0.5 opacity-70">Git-backed, shareable</div>
+    </button>
+  </div>
+
+    <form hx-post="/stores/create" hx-vals='{"_csrf":"{{.CSRFToken}}"}' hx-target="body"
+          hx-on::after-request="if(event.detail.successful) window.location='/stores'">
+      <input type="hidden" name="name" id="store-name-value">
+
+      <!-- Local name input -->
+      <div id="local-fields" class="mb-4">
+        <label class="block text-sm text-slate-300 mb-1">Store name</label>
+        <input id="local-name" type="text" placeholder="my-secrets"
+               oninput="updateStoreName()"
+               class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+      </div>
+
+      <!-- GitHub fields -->
+      <div id="github-fields" class="hidden mb-4">
+        <div class="flex gap-3 items-end">
+          <div class="flex-1">
+            <label class="block text-sm text-slate-300 mb-1">Organization or user</label>
+            <input id="gh-org" type="text" placeholder="acme"
+                   oninput="updateStoreName()"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div class="text-slate-600 pb-2 text-lg">/</div>
+          <div class="flex-1">
+            <label class="block text-sm text-slate-300 mb-1">Repository</label>
+            <input id="gh-repo" type="text" placeholder="secrets"
+                   oninput="updateStoreName()"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+        <div class="text-xs text-slate-500 mt-2 font-mono hidden" id="gh-preview"></div>
+        <p class="text-xs text-slate-500 mt-2">Creates a private GitHub repo if it doesn't already exist.</p>
+      </div>
+
+      <div class="flex justify-end gap-3 mt-5">
+        <button type="button" onclick="document.getElementById('create-store-modal').close()"
+                class="px-3 py-1.5 text-sm text-slate-300 hover:text-white transition-colors">Cancel</button>
+        <button type="submit" id="create-submit"
+                class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled>Create</button>
+      </div>
+    </form>
+</dialog>
+
+<script>
+(function() {
+  var storeType = '';
+
+  window.setStoreType = function(type) {
+    storeType = type;
+    var tabLocal = document.getElementById('tab-local');
+    var tabGithub = document.getElementById('tab-github');
+    var localFields = document.getElementById('local-fields');
+    var githubFields = document.getElementById('github-fields');
+
+    if (type === 'local') {
+      tabLocal.className = 'flex-1 px-3 py-2 text-sm rounded-md border border-indigo-500 bg-indigo-500/10 text-white transition-colors';
+      tabGithub.className = 'flex-1 px-3 py-2 text-sm rounded-md border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 transition-colors';
+      localFields.classList.remove('hidden');
+      githubFields.classList.add('hidden');
+      document.getElementById('local-name').focus();
+    } else {
+      tabGithub.className = 'flex-1 px-3 py-2 text-sm rounded-md border border-indigo-500 bg-indigo-500/10 text-white transition-colors';
+      tabLocal.className = 'flex-1 px-3 py-2 text-sm rounded-md border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 transition-colors';
+      githubFields.classList.remove('hidden');
+      localFields.classList.add('hidden');
+      document.getElementById('gh-org').focus();
+    }
+    updateStoreName();
+  };
+
+  window.updateStoreName = function() {
+    var nameInput = document.getElementById('store-name-value');
+    var submit = document.getElementById('create-submit');
+    var preview = document.getElementById('gh-preview');
+
+    if (storeType === 'local') {
+      var val = document.getElementById('local-name').value.trim();
+      nameInput.value = val;
+      submit.disabled = !val;
+    } else if (storeType === 'github') {
+      var org = document.getElementById('gh-org').value.trim();
+      var repo = document.getElementById('gh-repo').value.trim();
+      if (org && repo) {
+        nameInput.value = 'github:' + org + '/' + repo;
+        preview.textContent = 'github:' + org + '/' + repo;
+        preview.classList.remove('hidden');
+        submit.disabled = false;
+      } else {
+        nameInput.value = '';
+        preview.textContent = '';
+        preview.classList.add('hidden');
+        submit.disabled = true;
+      }
+    } else {
+      submit.disabled = true;
+    }
+  };
+
+  // Close on backdrop click
+  var modal = document.getElementById('create-store-modal');
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) modal.close();
+  });
+
+  // Pre-populate from query params: ?org=acme&repo=secrets or ?name=my-store
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('org') || params.get('repo')) {
+    setStoreType('github');
+    if (params.get('org')) document.getElementById('gh-org').value = params.get('org');
+    if (params.get('repo')) document.getElementById('gh-repo').value = params.get('repo');
+    updateStoreName();
+    modal.showModal();
+  } else if (params.get('name')) {
+    setStoreType('local');
+    document.getElementById('local-name').value = params.get('name');
+    updateStoreName();
+    modal.showModal();
+  } else {
+    setStoreType('github');
+  }
+})();
+</script>
+{{end}}
+
 {{define "content"}}
 <div class="max-w-5xl">
-  <h1 class="text-2xl font-semibold text-white mb-6">Stores</h1>
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-semibold text-white">Stores</h1>
+    <button onclick="document.getElementById('create-store-modal').showModal()"
+            class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-md transition-colors">
+      Create store
+    </button>
+  </div>
 
   {{if not .Stores}}
   <div class="bg-slate-800 rounded-lg p-8 text-center text-slate-400">

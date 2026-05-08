@@ -94,6 +94,7 @@ Combine modes to layer stores:
 				if _, err := s.AddUser("me", "", id.PublicKey); err != nil {
 					return err
 				}
+				store.EnrichStoreCreator(s)
 				if _, err := s.CreateProject(projectName); err != nil {
 					return err
 				}

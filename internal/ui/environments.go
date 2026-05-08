@@ -3,26 +3,31 @@ package ui
 import (
 	"fmt"
 	"net/http"
-	"sort"
 )
 
-type envUserRow struct {
-	UserName  string
-	IsOwner   bool
-	HasAccess bool
+// envAccessRow is one user's access across all environments.
+type envAccessRow struct {
+	UserName string
+	Access   map[string]bool // env name → has access
 }
 
-type envSecretRow struct {
-	Key       string
-	Scope     string
-	Provider  string
-	UpdatedAt string
-	UpdatedBy string
+// envScopeDetail is per-scope info within an env card.
+type envScopeDetail struct {
+	Name        string   // display name (e.g. "default", "payments")
+	Path        string   // full scope path (e.g. "prod/payments")
+	SecretCount int
+	Recipients  []string // user names with access
+}
+
+// envCard is summary info for one environment.
+type envCard struct {
+	Name        string
+	SecretCount int
+	Scopes      []envScopeDetail
 }
 
 func (s *Server) handleStoreEnvironments(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	selectedEnv := r.URL.Query().Get("env")
 
 	st, err := s.resolveStoreByName(name)
 	if err != nil {
@@ -37,54 +42,71 @@ func (s *Server) handleStoreEnvironments(w http.ResponseWriter, r *http.Request)
 	}
 
 	envs, _ := st.ListEnvironments(project)
-	if selectedEnv == "" && len(envs) > 0 {
-		selectedEnv = envs[0]
-	}
-
-	// Users and their access for this env.
 	users, _ := st.ListUsers()
-	scopes, _ := st.ListScopes(project, selectedEnv)
 
-	hasAccess := make(map[string]bool)
-	for _, scope := range scopes {
-		for _, r := range scope.Recipients {
-			hasAccess[r.Name] = true
+	// Filter out * from display envs.
+	var displayEnvs []string
+	for _, e := range envs {
+		if e != "*" {
+			displayEnvs = append(displayEnvs, e)
 		}
 	}
 
-	var userRows []envUserRow
+	// Build access matrix: for each user, check access per env.
+	var matrix []envAccessRow
 	for _, u := range users {
-		userRows = append(userRows, envUserRow{
-			UserName:  u.Name,
-			// IsOwner removed - no owner concept
-			HasAccess: hasAccess[u.Name],
+		row := envAccessRow{
+			UserName: u.Name,
+			Access:   make(map[string]bool),
+		}
+		for _, env := range displayEnvs {
+			scopes, _ := st.ListScopes(project, env)
+			for _, scope := range scopes {
+				for _, r := range scope.Recipients {
+					if r.Name == u.Name {
+						row.Access[env] = true
+					}
+				}
+			}
+		}
+		matrix = append(matrix, row)
+	}
+
+	// Build env cards with scope details.
+	var cards []envCard
+	for _, env := range displayEnvs {
+		scopes, _ := st.ListScopes(project, env)
+		totalSecrets := 0
+		var scopeDetails []envScopeDetail
+		for _, sc := range scopes {
+			totalSecrets += len(sc.Secrets)
+			seen := make(map[string]bool)
+			var recipients []string
+			for _, r := range sc.Recipients {
+				if !seen[r.Name] {
+					seen[r.Name] = true
+					recipients = append(recipients, r.Name)
+				}
+			}
+			scopeDetails = append(scopeDetails, envScopeDetail{
+				Name:        scopeDisplayName(sc.Path),
+				Path:        sc.Path,
+				SecretCount: len(sc.Secrets),
+				Recipients:  recipients,
+			})
+		}
+		cards = append(cards, envCard{
+			Name:        env,
+			SecretCount: totalSecrets,
+			Scopes:      scopeDetails,
 		})
 	}
 
-	// Secrets in this env.
-	var secretRows []envSecretRow
-	for _, scope := range scopes {
-		manifest := readManifestFile(st.Root, project, scope.Path)
-
-		for _, key := range scope.Secrets {
-			row := envSecretRow{
-				Key:   key,
-				Scope: scope.Path,
-			}
-			if manifest != nil {
-				if p, ok := manifest.Providers[key]; ok {
-					row.Provider = p
-				}
-			}
-			if secret, err := st.GetSecret(project, scope.Path, key); err == nil {
-				row.UpdatedAt = timeAgo(secret.UpdatedAt)
-				row.UpdatedBy = secret.UpdatedBy
-			}
-			secretRows = append(secretRows, row)
-		}
+	// Collect all user names for the scope recipient management.
+	var userNames []string
+	for _, u := range users {
+		userNames = append(userNames, u.Name)
 	}
-
-	sort.Slice(secretRows, func(i, j int) bool { return secretRows[i].Key < secretRows[j].Key })
 
 	s.render(w, "store_environments.html", map[string]any{
 		"Page":         "stores",
@@ -92,12 +114,10 @@ func (s *Server) handleStoreEnvironments(w http.ResponseWriter, r *http.Request)
 		"StoreName":    name,
 		"StoreType":    st.Meta.Type,
 		"StoreRemote":  storeRemote(st),
-		"Environments": envs,
-		"ActiveEnv":    selectedEnv,
-		"Users":        userRows,
-		"Secrets":      secretRows,
-		"SecretCount":  len(secretRows),
-		"UserCount":    len(userRows),
+		"Environments": displayEnvs,
+		"Matrix":       matrix,
+		"EnvCards":     cards,
+		"UserNames":   userNames,
 	})
 }
 
@@ -133,7 +153,7 @@ func (s *Server) handleEnvCreate(w http.ResponseWriter, r *http.Request) {
 		// Env created but scope failed — not fatal.
 	}
 
-	redirect := fmt.Sprintf("/stores/%s/environments?env=%s", name, envName)
+	redirect := fmt.Sprintf("/stores/%s/environments", name)
 	if isHTMX(r) {
 		w.Header().Set("HX-Redirect", redirect)
 	}
@@ -205,7 +225,101 @@ func (s *Server) handleEnvClone(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	redirect := fmt.Sprintf("/stores/%s/environments?env=%s", name, targetEnv)
+	redirect := fmt.Sprintf("/stores/%s/environments", name)
+	if isHTMX(r) {
+		w.Header().Set("HX-Redirect", redirect)
+	}
+	http.Redirect(w, r, redirect, http.StatusFound)
+}
+
+func (s *Server) handleScopeCreate(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	env := r.FormValue("env")
+	scopeName := r.FormValue("scope_name")
+
+	if env == "" || scopeName == "" {
+		http.Error(w, "environment and scope name required", http.StatusBadRequest)
+		return
+	}
+
+	st, err := s.resolveStoreByName(name)
+	if err != nil {
+		http.Error(w, "store not found", http.StatusNotFound)
+		return
+	}
+
+	project, _ := st.ResolveDefaultProject()
+	scopePath := env + "/" + scopeName
+
+	if err := st.CreateScope(project, scopePath); err != nil {
+		if isHTMX(r) {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<span class="text-rose-400 text-sm">%s</span>`, err.Error())
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	redirect := fmt.Sprintf("/stores/%s/environments", name)
+	if isHTMX(r) {
+		w.Header().Set("HX-Redirect", redirect)
+	}
+	http.Redirect(w, r, redirect, http.StatusFound)
+}
+
+func (s *Server) handleScopeGrant(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	userName := r.FormValue("user")
+	scopePath := r.FormValue("scope")
+
+	if userName == "" || scopePath == "" {
+		http.Error(w, "user and scope required", http.StatusBadRequest)
+		return
+	}
+
+	st, err := s.resolveStoreByName(name)
+	if err != nil {
+		http.Error(w, "store not found", http.StatusNotFound)
+		return
+	}
+
+	project, _ := st.ResolveDefaultProject()
+	if err := st.AddRecipient(project, scopePath, userName); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	redirect := fmt.Sprintf("/stores/%s/environments", name)
+	if isHTMX(r) {
+		w.Header().Set("HX-Redirect", redirect)
+	}
+	http.Redirect(w, r, redirect, http.StatusFound)
+}
+
+func (s *Server) handleScopeRevoke(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	userName := r.FormValue("user")
+	scopePath := r.FormValue("scope")
+
+	if userName == "" || scopePath == "" {
+		http.Error(w, "user and scope required", http.StatusBadRequest)
+		return
+	}
+
+	st, err := s.resolveStoreByName(name)
+	if err != nil {
+		http.Error(w, "store not found", http.StatusNotFound)
+		return
+	}
+
+	project, _ := st.ResolveDefaultProject()
+	if err := st.RemoveRecipient(project, scopePath, userName); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	redirect := fmt.Sprintf("/stores/%s/environments", name)
 	if isHTMX(r) {
 		w.Header().Set("HX-Redirect", redirect)
 	}

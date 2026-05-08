@@ -178,12 +178,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Stores.
 	mux.HandleFunc("GET /stores", s.handleStores)
+	mux.HandleFunc("POST /stores/create", s.handleStoreCreate)
 	mux.HandleFunc("GET /stores/{name}", s.handleStoreDetail)
 	mux.HandleFunc("GET /stores/{name}/team", s.handleStoreTeam)
 	mux.HandleFunc("GET /stores/{name}/environments", s.handleStoreEnvironments)
 	mux.HandleFunc("POST /stores/{name}/environments/create", s.handleEnvCreate)
 	mux.HandleFunc("POST /stores/{name}/environments/clone", s.handleEnvClone)
 	mux.HandleFunc("POST /stores/{name}/environments/delete", s.handleEnvDelete)
+	mux.HandleFunc("POST /stores/{name}/scopes/create", s.handleScopeCreate)
+	mux.HandleFunc("POST /stores/{name}/scopes/grant", s.handleScopeGrant)
+	mux.HandleFunc("POST /stores/{name}/scopes/revoke", s.handleScopeRevoke)
 	mux.HandleFunc("GET /stores/{name}/rotation", s.handleStoreRotation)
 	mux.HandleFunc("GET /stores/{name}/invites", s.handleStoreInvites)
 	mux.HandleFunc("GET /stores/{name}/activity", s.handleStoreActivity)

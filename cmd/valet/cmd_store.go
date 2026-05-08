@@ -59,10 +59,11 @@ Remote (git-backed) store — name is inferred from the URL:
 			return err
 		}
 
-		// Add creator as first user.
+		// Add creator as first user and link GitHub identity if available.
 		if _, err := s.AddUser("me", "", id.PublicKey); err != nil {
 			return err
 		}
+		store.EnrichStoreCreator(s)
 
 		// Auto-create a default project with dev env + default scope.
 		projectName := uri.EffectiveProject()
