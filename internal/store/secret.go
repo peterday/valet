@@ -302,7 +302,7 @@ func (s *Store) decryptVault(projectSlug, scopePath string) (*domain.VaultConten
 		return nil, fmt.Errorf("reading vault for scope %q: %w", scopePath, err)
 	}
 
-	return crypto.DecryptVault(data, s.ageIdentity())
+	return crypto.DecryptVault(data, s.ageIdentities()...)
 }
 
 // encryptAndWriteVault encrypts vault content and writes it to disk.

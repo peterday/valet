@@ -209,7 +209,7 @@ Rotation flags auto-clear when a secret value is updated.`
 const helpSecurity = `Security model:
 
   - age (https://age-encryption.org/) public key encryption per scope
-  - SSH keys (ed25519, RSA) supported as recipients via agessh
+  - SSH keys (ed25519, RSA) work as recipients and, from ~/.ssh, as decrypt identities
   - Secret names visible in manifest; values only in encrypted vault.age
   - Identity keys at ~/.valet/identity/ — never committed
   - GitHub SSH keys as recipients — no key ceremony needed
