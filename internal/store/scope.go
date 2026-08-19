@@ -378,7 +378,7 @@ func (s *Store) reencryptVault(projectSlug, scopePath string, manifest *domain.M
 	}
 
 	keys := recipientKeys(manifest.Recipients)
-	newData, err := crypto.ReencryptVault(data, s.ageIdentity(), keys)
+	newData, err := crypto.ReencryptVault(data, keys, s.ageIdentities()...)
 	if err != nil {
 		return err
 	}

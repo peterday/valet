@@ -78,9 +78,12 @@ func EncryptVault(content *domain.VaultContent, recipientKeys []string) ([]byte,
 	return buf.Bytes(), nil
 }
 
-// DecryptVault decrypts a vault.age blob using the given identity.
-func DecryptVault(data []byte, identity age.Identity) (*domain.VaultContent, error) {
-	r, err := age.Decrypt(bytes.NewReader(data), identity)
+// DecryptVault decrypts a vault.age blob, trying each identity in turn.
+func DecryptVault(data []byte, identities ...age.Identity) (*domain.VaultContent, error) {
+	if len(identities) == 0 {
+		return nil, fmt.Errorf("decrypting vault: no identities available")
+	}
+	r, err := age.Decrypt(bytes.NewReader(data), identities...)
 	if err != nil {
 		return nil, fmt.Errorf("decrypting vault: %w", err)
 	}
@@ -100,8 +103,8 @@ func DecryptVault(data []byte, identity age.Identity) (*domain.VaultContent, err
 
 // ReencryptVault decrypts a vault with the given identity and re-encrypts
 // it to a new set of recipients.
-func ReencryptVault(data []byte, identity age.Identity, newRecipientKeys []string) ([]byte, error) {
-	content, err := DecryptVault(data, identity)
+func ReencryptVault(data []byte, newRecipientKeys []string, identities ...age.Identity) ([]byte, error) {
+	content, err := DecryptVault(data, identities...)
 	if err != nil {
 		return nil, err
 	}

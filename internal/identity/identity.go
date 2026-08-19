@@ -4,18 +4,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"filippo.io/age"
+	"filippo.io/age/agessh"
 )
 
-// Identity holds a local user's age keypair.
+// Identity holds a local user's age keypair, plus any SSH keys found on
+// this machine that can also decrypt.
+//
+// PublicKey and Recipient always refer to the age keypair — that is the
+// identity valet publishes when adding you to a store. The SSH keys are
+// decrypt-only: valet already accepts SSH public keys as recipients (see
+// crypto.ParseRecipients), typically harvested from GitHub, so a vault is
+// often encrypted to a key this machine holds even when the age key is not
+// a recipient. Without these, that vault would be unopenable here.
 type Identity struct {
 	Name       string
 	PublicKey  string
 	PrivateKey string
 	Recipient  age.Recipient
 	identity   age.Identity
+	sshKeys    []age.Identity
 }
 
 func dir() (string, error) {
@@ -97,6 +108,42 @@ func GenerateKeypair() (*Identity, error) {
 	}, nil
 }
 
+// sshIdentities returns age identities for the usable SSH private keys in
+// ~/.ssh. Keys that cannot be parsed are skipped rather than failing the
+// load: an unreadable or passphrase-protected key in ~/.ssh should never
+// stop valet from using the age identity it already has.
+func sshIdentities() []age.Identity {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	matches, err := filepath.Glob(filepath.Join(home, ".ssh", "id_*"))
+	if err != nil {
+		return nil
+	}
+	sort.Strings(matches)
+
+	var ids []age.Identity
+	for _, path := range matches {
+		if strings.HasSuffix(path, ".pub") {
+			continue
+		}
+		pem, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		// Encrypted keys return an error here. Handling them would need a
+		// passphrase prompt, which would break non-interactive `valet drive`.
+		id, err := agessh.ParseIdentity(pem)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // Load reads an existing identity. Checks VALET_KEY env var first,
 // then falls back to ~/.valet/identity/.
 func Load() (*Identity, error) {
@@ -149,6 +196,7 @@ func Load() (*Identity, error) {
 		PrivateKey: privKey,
 		Recipient:  k.Recipient(),
 		identity:   k,
+		sshKeys:    sshIdentities(),
 	}, nil
 }
 
@@ -166,7 +214,22 @@ func (id *Identity) Export() string {
 	return id.PublicKey
 }
 
-// AgeIdentity returns the underlying age.Identity for decryption.
+// AgeIdentity returns the primary age identity.
+//
+// Deprecated: use AgeIdentities, which also returns any SSH keys that can
+// decrypt. Decrypting with only this key fails on vaults encrypted to an
+// SSH recipient.
 func (id *Identity) AgeIdentity() age.Identity {
 	return id.identity
+}
+
+// AgeIdentities returns every identity that may decrypt a vault: the age
+// keypair first, then any usable SSH keys from ~/.ssh. age tries each in
+// turn, so ordering only affects which is attempted first.
+func (id *Identity) AgeIdentities() []age.Identity {
+	ids := make([]age.Identity, 0, 1+len(id.sshKeys))
+	if id.identity != nil {
+		ids = append(ids, id.identity)
+	}
+	return append(ids, id.sshKeys...)
 }

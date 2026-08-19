@@ -157,9 +157,9 @@ func (s *Store) ResolveDefaultProject() (string, error) {
 	return s.resolveProject("")
 }
 
-// ageIdentity returns the age.Identity for decryption.
-func (s *Store) ageIdentity() age.Identity {
-	return s.Identity.AgeIdentity()
+// ageIdentities returns every identity that may decrypt this store's vaults.
+func (s *Store) ageIdentities() []age.Identity {
+	return s.Identity.AgeIdentities()
 }
 
 // recipientKeys extracts the public key strings from manifest recipients.

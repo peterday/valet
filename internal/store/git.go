@@ -173,7 +173,7 @@ func (s *Store) resolveVaultConflicts() error {
 // merges the secret maps with latest-timestamp-wins, and re-encrypts.
 func (s *Store) mergeVaultFile(relPath string) error {
 	absPath := filepath.Join(s.Root, relPath)
-	identity := s.ageIdentity()
+	identities := s.ageIdentities()
 
 	// Get ours.
 	oursData, err := s.gitBytesOutput("show", "HEAD:"+relPath)
@@ -187,12 +187,12 @@ func (s *Store) mergeVaultFile(relPath string) error {
 		return fmt.Errorf("reading theirs: %w", err)
 	}
 
-	oursContent, err := crypto.DecryptVault(oursData, identity)
+	oursContent, err := crypto.DecryptVault(oursData, identities...)
 	if err != nil {
 		return fmt.Errorf("decrypting ours: %w", err)
 	}
 
-	theirsContent, err := crypto.DecryptVault(theirsData, identity)
+	theirsContent, err := crypto.DecryptVault(theirsData, identities...)
 	if err != nil {
 		return fmt.Errorf("decrypting theirs: %w", err)
 	}

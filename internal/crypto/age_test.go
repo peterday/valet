@@ -182,10 +182,10 @@ func TestReencryptVault(t *testing.T) {
 	}
 
 	// Re-encrypt to both k1 and k2
-	reencrypted, err := ReencryptVault(encrypted, k1, []string{
+	reencrypted, err := ReencryptVault(encrypted, []string{
 		k1.Recipient().String(),
 		k2.Recipient().String(),
-	})
+	}, k1)
 	if err != nil {
 		t.Fatal(err)
 	}
